@@ -75,6 +75,40 @@ CLI optimization:
 assetforge-optimize .\RhinoTank.blend --profile generic_vehicle --target-triangles 5000 --json .\optimization-report.json
 ```
 
+CLI FBX export:
+
+```powershell
+assetforge-export-fbx .\RhinoTank.blend --profile cities_skylines_vehicle --json .\export-report.json
+```
+
+Strict single-mesh FBX experiment:
+
+```powershell
+assetforge-export-fbx-strict .\RhinoTank.blend --json .\strict-export-report.json
+```
+
+Cities Skylines export uses a single joined mesh by default because the Asset Editor rejected the earlier multi-mesh FBX.
+
+CLI validation:
+
+```powershell
+assetforge-validate .\RhinoTank.blend --profile cities_skylines_vehicle --json .\validation-report.json
+```
+
+One-click Cities Skylines build:
+
+```powershell
+assetforge-build-cs .\RhinoTank.blend --json .\build-report.json
+```
+
+The build output is written to `build/`:
+
+- `<name>_cs.fbx`
+- `<name>_cs_d.png`
+- `build_report.json`
+
+If `RhinoTank_optimized.blend` exists beside the selected source file, AssetForge exports that optimized copy while writing `RhinoTank_cs.fbx`.
+
 ## Naming Convention
 
 AssetForge expects:

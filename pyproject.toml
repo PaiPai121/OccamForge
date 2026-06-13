@@ -19,6 +19,10 @@ dev = [
 assetforge = "assetforge.app.main:main"
 assetforge-analyze = "assetforge.app.cli:main"
 assetforge-optimize = "assetforge.app.optimize_cli:main"
+assetforge-export-fbx = "assetforge.app.export_cli:main"
+assetforge-export-fbx-strict = "assetforge.app.export_strict_cli:main"
+assetforge-validate = "assetforge.app.validate_cli:main"
+assetforge-build-cs = "assetforge.app.build_cs_cli:main"
 
 [build-system]
 requires = ["hatchling"]

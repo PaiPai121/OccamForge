@@ -16,5 +16,9 @@ build/
 logs/
 *.log
 *.blend1
+*_cs.fbx
+*_cs_strict.fbx
+build/
+validation_report.json
 .coverage
 htmlcov/

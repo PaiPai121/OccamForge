@@ -14,6 +14,9 @@ class AssetProfile:
     decimate_body_only: bool = False
     minimum_decimate_ratio: float = 0.05
     max_decimation_iterations: int = 12
+    preferred_triangle_count: int = 5000
+    warning_triangle_count: int = 10000
+    critical_triangle_count: int = 20000
 
 
 GENERIC_VEHICLE_PROFILE = AssetProfile(
@@ -21,6 +24,9 @@ GENERIC_VEHICLE_PROFILE = AssetProfile(
     display_name="Generic Vehicle",
     default_target_triangles=5000,
     decimate_body_only=False,
+    preferred_triangle_count=5000,
+    warning_triangle_count=10000,
+    critical_triangle_count=20000,
 )
 
 CITIES_SKYLINES_VEHICLE_PROFILE = AssetProfile(
@@ -28,6 +34,19 @@ CITIES_SKYLINES_VEHICLE_PROFILE = AssetProfile(
     display_name="Cities Skylines Vehicle",
     default_target_triangles=5000,
     decimate_body_only=False,
+    preferred_triangle_count=5000,
+    warning_triangle_count=10000,
+    critical_triangle_count=20000,
+)
+
+CITIES_SKYLINES_VEHICLE_STRICT_PROFILE = AssetProfile(
+    profile_id="cities_skylines_vehicle_strict",
+    display_name="Cities Skylines Vehicle Strict",
+    default_target_triangles=5000,
+    decimate_body_only=False,
+    preferred_triangle_count=5000,
+    warning_triangle_count=10000,
+    critical_triangle_count=20000,
 )
 
 
@@ -36,6 +55,7 @@ class AssetProfileRegistry:
         self._profiles = profiles or (
             GENERIC_VEHICLE_PROFILE,
             CITIES_SKYLINES_VEHICLE_PROFILE,
+            CITIES_SKYLINES_VEHICLE_STRICT_PROFILE,
         )
 
     def get(self, profile_id: str) -> AssetProfile:

@@ -1,0 +1,22 @@
+{
+  "source_blend_file": "rhino_tank.blend",
+  "build_folder": "build",
+  "working_blend_file": "build\\rhino_tank_build.blend",
+  "fbx_file": "build\\rhino_tank_cs.fbx",
+  "diffuse_texture_file": "build\\rhino_tank_cs_d.png",
+  "report_file": "build\\build_report.json",
+  "profile_id": "cities_skylines_vehicle",
+  "original_triangle_count": 62656,
+  "final_triangle_count": 4984,
+  "target_triangle_count": 5000,
+  "optimized": true,
+  "body_object": "turret",
+  "wheel_count": 17,
+  "object_count": 18,
+  "warnings": [
+    "VehicleBody was inferred from the only non-wheel mesh object: turret",
+    "Wheel objects were inferred from mesh name prefixes: whell",
+    "Cities Skylines FBX exported as a single joined mesh for Asset Editor compatibility."
+  ],
+  "errors": []
+}

@@ -21,6 +21,9 @@ def main() -> int:
     window = MainWindow(
         services.vehicle_analysis,
         services.vehicle_optimization,
+        services.vehicle_export,
+        services.vehicle_validation,
+        services.cities_skylines_build,
         services.blender_configuration,
     )
     window.resize(820, 580)

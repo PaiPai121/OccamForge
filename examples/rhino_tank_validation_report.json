@@ -1,0 +1,117 @@
+{
+  "blend_file": "rhino_tank.blend",
+  "report_file": "validation_report.json",
+  "profile_id": "cities_skylines_vehicle",
+  "triangle_count": 62656,
+  "wheel_count": 17,
+  "object_count": 18,
+  "blender_path": "D:\\SteamLibrary\\steamapps\\common\\Blender\\blender.exe",
+  "body_object": "turret",
+  "wheel_objects": [
+    "whell",
+    "whell.001",
+    "whell.002",
+    "whell.003",
+    "whell.004",
+    "whell.005",
+    "whell.006",
+    "whell.007",
+    "whell.008",
+    "whell.009",
+    "whell.010",
+    "whell.011",
+    "whell.012",
+    "whell.013",
+    "whell.014",
+    "whell.015",
+    "whell.016"
+  ],
+  "unknown_objects": [],
+  "unapplied_transform_objects": [
+    "whell",
+    "whell.001",
+    "whell.002",
+    "whell.003",
+    "whell.004",
+    "whell.005",
+    "whell.006",
+    "whell.007",
+    "whell.008",
+    "whell.009",
+    "whell.010",
+    "whell.011",
+    "whell.012",
+    "whell.013",
+    "whell.014",
+    "whell.015",
+    "whell.016"
+  ],
+  "auto_texture_candidate_objects": [
+    "turret",
+    "whell",
+    "whell.001",
+    "whell.002",
+    "whell.003",
+    "whell.004",
+    "whell.005",
+    "whell.006",
+    "whell.007",
+    "whell.008",
+    "whell.009",
+    "whell.010",
+    "whell.011",
+    "whell.012",
+    "whell.013",
+    "whell.014",
+    "whell.015",
+    "whell.016"
+  ],
+  "missing_lods": [
+    "lod0",
+    "lod1",
+    "lod2"
+  ],
+  "score": 0,
+  "rating": "Critical",
+  "export_ready": false,
+  "issues": [
+    {
+      "check": "body_detection",
+      "severity": "warning",
+      "message": "Body inferred from only non-wheel mesh: turret"
+    },
+    {
+      "check": "wheel_detection",
+      "severity": "warning",
+      "message": "Wheels inferred from prefixes: whell"
+    },
+    {
+      "check": "triangle_count",
+      "severity": "critical",
+      "message": "Triangle count 62656 exceeds critical limit 20000."
+    },
+    {
+      "check": "unapplied_transforms",
+      "severity": "warning",
+      "message": "17 objects have unapplied transforms."
+    },
+    {
+      "check": "auto_texture_generation",
+      "severity": "info",
+      "message": "Can auto-generate diffuse texture for 18 mesh objects."
+    },
+    {
+      "check": "missing_lods",
+      "severity": "warning",
+      "message": "Missing LOD markers: lod0, lod1, lod2"
+    }
+  ],
+  "messages": [
+    "Body inferred from only non-wheel mesh: turret",
+    "Wheels inferred from prefixes: whell",
+    "Triangle count 62656 exceeds critical limit 20000.",
+    "17 objects have unapplied transforms.",
+    "Can auto-generate diffuse texture for 18 mesh objects.",
+    "Missing LOD markers: lod0, lod1, lod2"
+  ]
+}

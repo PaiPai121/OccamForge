@@ -1,0 +1,14 @@
+{
+  "source_blend_file": "rhino_tank.blend",
+  "export_blend_file": "rhino_tank_optimized.blend",
+  "fbx_file": "rhino_tank_cs.fbx",
+  "profile_id": "cities_skylines_vehicle",
+  "triangle_count": 4984,
+  "wheel_count": 0,
+  "object_count": 1,
+  "warnings": [
+    "Strict export experiment: all mesh objects are joined into one mesh for import compatibility testing.",
+    "Joined 18 mesh objects into one exported mesh."
+  ],
+  "errors": []
+}

@@ -10,6 +10,7 @@ def test_registry_contains_required_profiles() -> None:
 
     assert "generic_vehicle" in profile_ids
     assert "cities_skylines_vehicle" in profile_ids
+    assert "cities_skylines_vehicle_strict" in profile_ids
 
 
 def test_registry_rejects_unknown_profile() -> None:
@@ -17,4 +18,3 @@ def test_registry_rejects_unknown_profile() -> None:
 
     with pytest.raises(ValueError):
         registry.get("unknown")
-

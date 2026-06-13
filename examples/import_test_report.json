@@ -1,0 +1,95 @@
+{
+  "asset": "rhino_tank",
+  "release_candidate_scope": "Blender -> AssetForge -> Cities Skylines Asset Editor",
+  "generated_package": {
+    "build_folder": "build",
+    "fbx_file": "build\\rhino_tank_cs.fbx",
+    "diffuse_texture_file": "build\\rhino_tank_cs_d.png",
+    "build_report_file": "build\\build_report.json"
+  },
+  "automated_checks": [
+    {
+      "name": "FBX file exists",
+      "status": "passed",
+      "evidence": "build\\rhino_tank_cs.fbx"
+    },
+    {
+      "name": "Diffuse texture exists",
+      "status": "passed",
+      "evidence": "build\\rhino_tank_cs_d.png"
+    },
+    {
+      "name": "Build report exists",
+      "status": "passed",
+      "evidence": "build\\build_report.json"
+    },
+    {
+      "name": "FBX imports into Blender smoke test",
+      "status": "passed",
+      "evidence": "examples\\rhino_tank_fbx_import_smoke.json"
+    },
+    {
+      "name": "Strict single-mesh FBX imports into Blender smoke test",
+      "status": "passed",
+      "evidence": "examples\\rhino_tank_strict_fbx_import_smoke.json"
+    }
+  ],
+  "single_mesh_import_compatibility": {
+    "finding": "Cities Skylines Asset Import Tool accepts a single-mesh FBX. Multi-mesh FBX kept Continue disabled.",
+    "default_fbx_file": "build\\rhino_tank_cs.fbx",
+    "source_blend_file": "build\\rhino_tank_build.blend",
+    "mesh_object_count": 1,
+    "triangle_count": 4984,
+    "import_ready": true,
+    "status": "ready_for_manual_asset_editor_test",
+    "implementation": "Cities Skylines build now exports a temporary single joined mesh while preserving body/wheel metadata internally."
+  },
+  "cities_skylines_asset_editor_checks": [
+    {
+      "name": "FBX loads",
+      "status": "manual_required"
+    },
+    {
+      "name": "Model orientation correct",
+      "status": "manual_required"
+    },
+    {
+      "name": "Scale correct",
+      "status": "manual_required"
+    },
+    {
+      "name": "Wheels detected",
+      "status": "manual_required"
+    },
+    {
+      "name": "Texture loads",
+      "status": "manual_required"
+    },
+    {
+      "name": "No missing materials",
+      "status": "manual_required"
+    },
+    {
+      "name": "Asset saves successfully",
+      "status": "manual_required"
+    }
+  ],
+  "manual_steps_required": [
+    "Open Cities Skylines.",
+    "Open Tools > Asset Editor.",
+    "Choose the appropriate vehicle template.",
+    "Import build\\rhino_tank_cs.fbx.",
+    "Confirm or assign build\\rhino_tank_cs_d.png as the diffuse texture.",
+    "Inspect model orientation and scale.",
+    "Confirm wheel placement and wheel recognition.",
+    "Confirm no missing materials are shown.",
+    "Save the asset successfully."
+  ],
+  "current_status": "ready_for_manual_asset_editor_import_test",
+  "notes": [
+    "Cities Skylines is installed at D:\\SteamLibrary\\steamapps\\common\\Cities_Skylines.",
+    "AssetForge cannot truthfully mark Asset Editor import checks as passed until the interactive Cities Skylines Asset Editor workflow is completed.",
+    "The generated build FBX passed an automated Blender import smoke test with 1 mesh object and 7 material slots.",
+    "The legacy strict experiment FBX passed an automated Blender import smoke test with 1 mesh object and 6 material slots."
+  ]
+}

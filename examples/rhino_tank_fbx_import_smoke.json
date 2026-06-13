@@ -1,0 +1,9 @@
+{
+  "fbx_file": "build\\rhino_tank_cs.fbx",
+  "imported": true,
+  "mesh_object_count": 1,
+  "material_slot_count": 7,
+  "object_names": [
+    "rhino_tank_cs"
+  ]
+}
