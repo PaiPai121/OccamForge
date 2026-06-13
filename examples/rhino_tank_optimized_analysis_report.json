@@ -1,0 +1,141 @@
+{
+  "blend_file": "rhino_tank_optimized.blend",
+  "has_vehicle_body": true,
+  "wheel_count": 17,
+  "object_count": 18,
+  "vertex_count": 3006,
+  "triangle_count": 4984,
+  "objects": [
+    {
+      "name": "turret",
+      "vertex_count": 554,
+      "triangle_count": 912,
+      "is_body": true,
+      "is_wheel": false
+    },
+    {
+      "name": "whell",
+      "vertex_count": 0,
+      "triangle_count": 0,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.001",
+      "vertex_count": 67,
+      "triangle_count": 82,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.002",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.003",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.004",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.005",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.006",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.007",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.008",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.009",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.010",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.011",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.012",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.013",
+      "vertex_count": 182,
+      "triangle_count": 312,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.014",
+      "vertex_count": 67,
+      "triangle_count": 82,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.015",
+      "vertex_count": 67,
+      "triangle_count": 82,
+      "is_body": false,
+      "is_wheel": true
+    },
+    {
+      "name": "whell.016",
+      "vertex_count": 67,
+      "triangle_count": 82,
+      "is_body": false,
+      "is_wheel": true
+    }
+  ],
+  "warnings": [
+    "VehicleBody was inferred from the only non-wheel mesh object: turret",
+    "Wheel objects were inferred from mesh name prefixes: whell"
+  ],
+  "errors": []
+}

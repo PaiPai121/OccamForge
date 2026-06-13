@@ -1,0 +1,19 @@
+{
+  "source_blend_file": "rhino_tank.blend",
+  "optimized_blend_file": "rhino_tank_optimized.blend",
+  "report_file": "rhino_tank_optimized_report.json",
+  "profile_id": "generic_vehicle",
+  "target_triangle_count": 5000,
+  "original_triangle_count": 62656,
+  "optimized_triangle_count": 4984,
+  "reduction_percentage": 92.05,
+  "body_object": "turret",
+  "wheel_count": 17,
+  "decimate_ratio": 0.0792,
+  "iterations": 12,
+  "warnings": [
+    "VehicleBody was inferred from the only non-wheel mesh object: turret",
+    "Wheel objects were inferred from mesh name prefixes: whell"
+  ],
+  "errors": []
+}

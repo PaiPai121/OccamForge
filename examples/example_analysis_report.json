@@ -1,0 +1,27 @@
+{
+  "blend_file": "D:\\work_console\\AssetForge\\examples\\RhinoTank.blend",
+  "has_vehicle_body": true,
+  "wheel_count": 6,
+  "object_count": 7,
+  "vertex_count": 18452,
+  "triangle_count": 36210,
+  "objects": [
+    {
+      "name": "VehicleBody",
+      "vertex_count": 12320,
+      "triangle_count": 24180,
+      "is_body": true,
+      "is_wheel": false
+    },
+    {
+      "name": "Wheel_001",
+      "vertex_count": 1022,
+      "triangle_count": 2005,
+      "is_body": false,
+      "is_wheel": true
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}
+
