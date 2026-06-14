@@ -25,6 +25,11 @@ def report_from_dict(payload: dict[str, Any]) -> VehicleAnalysisReport:
         object_count=int(payload.get("object_count", 0)),
         vertex_count=int(payload.get("vertex_count", 0)),
         triangle_count=int(payload.get("triangle_count", 0)),
+        preview_mesh_path=(
+            Path(str(payload["preview_mesh_path"]))
+            if payload.get("preview_mesh_path")
+            else None
+        ),
         objects=objects,
         warnings=tuple(str(item) for item in payload.get("warnings", [])),
         errors=tuple(str(item) for item in payload.get("errors", [])),
@@ -39,6 +44,7 @@ def report_to_dict(report: VehicleAnalysisReport) -> dict[str, Any]:
         "object_count": report.object_count,
         "vertex_count": report.vertex_count,
         "triangle_count": report.triangle_count,
+        "preview_mesh_path": str(report.preview_mesh_path) if report.preview_mesh_path else None,
         "objects": [
             {
                 "name": item.name,
@@ -52,4 +58,3 @@ def report_to_dict(report: VehicleAnalysisReport) -> dict[str, Any]:
         "warnings": list(report.warnings),
         "errors": list(report.errors),
     }
-

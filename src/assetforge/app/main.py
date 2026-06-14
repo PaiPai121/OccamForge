@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 from assetforge.app.composition import build_app_services
 from assetforge.core.config import AssetForgeConfig
 from assetforge.core.logging import configure_logging
-from assetforge.gui.main_window import MainWindow
+from assetforge.gui.web_main_window import WebMainWindow
 
 
 def main() -> int:
@@ -18,15 +18,15 @@ def main() -> int:
     app.setApplicationName("AssetForge")
     app.setOrganizationName("AssetForge")
     services = build_app_services(config)
-    window = MainWindow(
+    window = WebMainWindow(
         services.vehicle_analysis,
-        services.vehicle_optimization,
-        services.vehicle_export,
         services.vehicle_validation,
         services.cities_skylines_build,
+        services.real_optimization_preview,
+        services.model_preview,
         services.blender_configuration,
     )
-    window.resize(820, 580)
+    window.resize(1280, 860)
     window.show()
     return app.exec()
 

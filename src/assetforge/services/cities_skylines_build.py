@@ -15,6 +15,9 @@ class CitiesSkylinesBuilder(ABC):
         self,
         blend_file: Path,
         profile: AssetProfile,
+        build_folder: Path | None = None,
+        optimize: bool = False,
+        target_triangle_count: int | None = None,
     ) -> CitiesSkylinesBuildReport:
         raise NotImplementedError
 
@@ -30,10 +33,23 @@ class CitiesSkylinesBuildService:
         self._builder = builder
         self._profile_registry = profile_registry or AssetProfileRegistry()
 
-    def build(self, blend_file: Path) -> CitiesSkylinesBuildReport:
+    def build(
+        self,
+        blend_file: Path,
+        build_folder: Path | None = None,
+        optimize: bool = False,
+        target_triangle_count: int | None = None,
+    ) -> CitiesSkylinesBuildReport:
         if not blend_file.exists():
             raise FileNotFoundError(f"Blend file does not exist: {blend_file}")
         if blend_file.suffix.lower() != ".blend":
             raise ValueError(f"Expected a .blend file, got: {blend_file}")
         profile = self._profile_registry.get("cities_skylines_vehicle")
-        return self._builder.build_cities_skylines_asset(blend_file, profile)
+        target = target_triangle_count or profile.default_target_triangles
+        return self._builder.build_cities_skylines_asset(
+            blend_file,
+            profile,
+            build_folder,
+            optimize,
+            target,
+        )

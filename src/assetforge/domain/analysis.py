@@ -25,6 +25,7 @@ class VehicleAnalysisReport:
     object_count: int
     vertex_count: int
     triangle_count: int
+    preview_mesh_path: Path | None = None
     objects: tuple[VehicleObjectSummary, ...] = ()
     warnings: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
@@ -43,4 +44,3 @@ class VehicleAnalysisReport:
             vertex_count=0,
             triangle_count=0,
         )
-

@@ -5,7 +5,8 @@
     "build_folder": "build",
     "fbx_file": "build\\rhino_tank_cs.fbx",
     "diffuse_texture_file": "build\\rhino_tank_cs_d.png",
-    "build_report_file": "build\\build_report.json"
+    "build_report_file": "build\\build_report.json",
+    "orientation_fix_report_file": "build\\orientation_fix_report.json"
   },
   "automated_checks": [
     {
@@ -29,6 +30,11 @@
       "evidence": "examples\\rhino_tank_fbx_import_smoke.json"
     },
     {
+      "name": "Cities Skylines orientation fix report exists",
+      "status": "passed",
+      "evidence": "build\\orientation_fix_report.json"
+    },
+    {
       "name": "Strict single-mesh FBX imports into Blender smoke test",
       "status": "passed",
       "evidence": "examples\\rhino_tank_strict_fbx_import_smoke.json"
@@ -43,6 +49,18 @@
     "import_ready": true,
     "status": "ready_for_manual_asset_editor_test",
     "implementation": "Cities Skylines build now exports a temporary single joined mesh while preserving body/wheel metadata internally."
+  },
+  "orientation_fix": {
+    "status": "applied",
+    "rotation_degrees": {
+      "x": -90.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "applied_rotation": true,
+    "applied_scale": true,
+    "source_blend_modified": false,
+    "report": "build\\orientation_fix_report.json"
   },
   "cities_skylines_asset_editor_checks": [
     {
@@ -90,6 +108,7 @@
     "Cities Skylines is installed at D:\\SteamLibrary\\steamapps\\common\\Cities_Skylines.",
     "AssetForge cannot truthfully mark Asset Editor import checks as passed until the interactive Cities Skylines Asset Editor workflow is completed.",
     "The generated build FBX passed an automated Blender import smoke test with 1 mesh object and 7 material slots.",
+    "The generated build FBX includes the Cities Skylines orientation fix: -90 degrees on X, then applied rotation and scale.",
     "The legacy strict experiment FBX passed an automated Blender import smoke test with 1 mesh object and 6 material slots."
   ]
 }

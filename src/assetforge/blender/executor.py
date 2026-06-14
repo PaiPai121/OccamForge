@@ -51,7 +51,13 @@ class BlenderBackgroundExecutor:
                     "Blender command failed with exit code "
                     f"{completed.returncode}\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
                 )
-            return json.loads(output_path.read_text(encoding="utf-8"))
+            output_text = output_path.read_text(encoding="utf-8")
+            if not output_text.strip():
+                raise BlenderExecutionError(
+                    "Blender command did not produce a JSON report.\n"
+                    f"STDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+                )
+            return json.loads(output_text)
         except subprocess.TimeoutExpired as exc:
             raise BlenderExecutionError("Blender command timed out.") from exc
         finally:

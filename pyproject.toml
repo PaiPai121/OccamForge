@@ -23,6 +23,7 @@ assetforge-export-fbx = "assetforge.app.export_cli:main"
 assetforge-export-fbx-strict = "assetforge.app.export_strict_cli:main"
 assetforge-validate = "assetforge.app.validate_cli:main"
 assetforge-build-cs = "assetforge.app.build_cs_cli:main"
+assetforge-real-preview = "assetforge.app.real_preview_cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -30,6 +31,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/assetforge"]
+artifacts = [
+    "src/assetforge/gui/web/*.html",
+    "src/assetforge/gui/web/*.css",
+    "src/assetforge/gui/web/*.js",
+    "src/assetforge/blender/scripts/*.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

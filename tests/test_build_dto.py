@@ -8,9 +8,12 @@ def test_build_report_round_trip() -> None:
     report = CitiesSkylinesBuildReport(
         source_blend_file=Path("tank.blend"),
         build_folder=Path("build"),
+        deploy_folder=Path("import"),
         working_blend_file=Path("build/tank_build.blend"),
         fbx_file=Path("build/tank_cs.fbx"),
         diffuse_texture_file=Path("build/tank_cs_d.png"),
+        deployed_fbx_file=Path("import/tank_cs.fbx"),
+        deployed_diffuse_texture_file=Path("import/tank_cs_d.png"),
         report_file=Path("build/build_report.json"),
         profile_id="cities_skylines_vehicle",
         original_triangle_count=10000,
@@ -27,4 +30,3 @@ def test_build_report_round_trip() -> None:
     restored = build_report_from_dict(build_report_to_dict(report))
 
     assert restored == report
-

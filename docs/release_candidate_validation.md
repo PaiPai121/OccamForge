@@ -58,9 +58,23 @@ Generated package:
 
 - `build\rhino_tank_cs.fbx`
 - `build\rhino_tank_cs_d.png`
+- `build\orientation_fix_report.json`
 
 The old strict command remains available only for isolated compatibility experiments:
 
 ```powershell
 assetforge-export-fbx-strict .\rhino_tank.blend --json .\examples\rhino_tank_strict_export_report.json
 ```
+
+## Orientation Fix
+
+If the imported asset appears rotated 90 degrees and lying on the ground, AssetForge applies a Cities Skylines export-only orientation fix:
+
+- create a temporary export scene
+- join mesh objects into one export mesh
+- rotate the export mesh `-90` degrees on X
+- apply rotation and scale
+- export FBX
+- leave source and working `.blend` files unchanged
+
+The fix is recorded in `build\orientation_fix_report.json`.

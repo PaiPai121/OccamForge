@@ -8,7 +8,8 @@
   "object_count": 1,
   "warnings": [
     "Strict export experiment: all mesh objects are joined into one mesh for import compatibility testing.",
-    "Joined 18 mesh objects into one exported mesh."
+    "Joined 18 mesh objects into one exported mesh.",
+    "Cities Skylines orientation fix applied: export mesh rotated -90 degrees on X axis."
   ],
   "errors": []
 }

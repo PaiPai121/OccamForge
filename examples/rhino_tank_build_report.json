@@ -16,7 +16,8 @@
   "warnings": [
     "VehicleBody was inferred from the only non-wheel mesh object: turret",
     "Wheel objects were inferred from mesh name prefixes: whell",
-    "Cities Skylines FBX exported as a single joined mesh for Asset Editor compatibility."
+    "Cities Skylines FBX exported as a single joined mesh for Asset Editor compatibility.",
+    "Cities Skylines orientation fix applied: export mesh rotated -90 degrees on X axis."
   ],
   "errors": []
 }

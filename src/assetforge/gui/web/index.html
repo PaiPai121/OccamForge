@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AssetForge</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Cities Skylines Vehicle</p>
+          <h2 id="fileTitle">No file selected</h2>
+        </div>
+        <div class="status" id="statusText">Starting AssetForge...</div>
+      </header>
+      <div class="progress-track" id="progressTrack">
+        <div class="progress-bar"></div>
+      </div>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <h3>Build a game-ready vehicle without opening Blender.</h3>
+          <p>Select a Blender model, set the maximum triangle count, preview the real result, then build the Cities Skylines package. Current builds export the main model only; LOD generation is not implemented yet.</p>
+        </div>
+        <div class="actions">
+          <button id="selectFileBtn">Select Blend File</button>
+          <button class="secondary" id="browseBlenderBtn">Browse Blender</button>
+        </div>
+      </section>
+
+      <section class="main-grid">
+        <div class="panel controls-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Build Settings</p>
+              <h3>Export options</h3>
+            </div>
+          </div>
+          <label class="check-row">
+            <input id="optimizeToggle" type="checkbox">
+            <span>
+              <strong>Optimize triangle count</strong>
+              <small>Off by default. Leave this unchecked to preserve the original mesh triangle count.</small>
+            </span>
+          </label>
+          <div class="optimize-controls" id="optimizeControls">
+            <div class="target-row">
+              <input id="targetTriangles" type="number" min="100" step="500" value="15000">
+              <span>tris max</span>
+            </div>
+            <input id="targetSlider" class="slider" type="range" min="1000" max="30000" step="500" value="15000">
+            <div class="preset-row">
+              <button class="chip" data-target="25000">Fast</button>
+              <button class="chip" data-target="15000">Balanced</button>
+              <button class="chip" data-target="5000">High Quality</button>
+            </div>
+          </div>
+          <div class="output-box">
+            <span>Cities Skylines import output</span>
+            <strong id="outputFolderValue">-</strong>
+            <small id="outputFolderSource">-</small>
+          </div>
+          <div class="button-grid">
+            <button id="analyzeBtn">Refresh Model Info</button>
+            <button id="previewBtn">Generate Real Preview</button>
+            <button class="secondary" id="applyPreviewBtn">Apply Current Preview</button>
+            <button class="secondary" id="browseOutputBtn">Browse Output Folder</button>
+            <button class="build" id="buildBtn">Build Cities Skylines Asset</button>
+          </div>
+          <div class="build-summary" id="buildSummary" hidden></div>
+        </div>
+
+        <div class="panel preview-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow" id="previewEyebrow">Model Preview</p>
+              <h3 id="previewTitle">Model preview</h3>
+            </div>
+            <div class="viewport-tools">
+              <button class="secondary" id="fitViewBtn">Fit</button>
+              <label>
+                Zoom
+                <input id="zoomSlider" type="range" min="50" max="500" step="5" value="100">
+              </label>
+            </div>
+          </div>
+          <div class="preview-stage" id="previewStage">
+            <div class="empty-preview">Preview image will appear here</div>
+          </div>
+          <div class="metric-grid">
+            <div><span>Original</span><strong id="metricOriginal">-</strong></div>
+            <div><span>Target</span><strong id="metricTarget">-</strong></div>
+            <div><span>Actual</span><strong id="metricActual">-</strong></div>
+            <div><span>Reduction</span><strong id="metricReduction">-</strong></div>
+            <div><span>Score</span><strong id="metricScore">-</strong></div>
+            <div><span>Rating</span><strong id="metricRating">-</strong></div>
+          </div>
+          <div class="notice" id="previewNotice"></div>
+        </div>
+      </section>
+
+      <section class="report-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Analysis</p>
+              <h3>Model structure</h3>
+            </div>
+          </div>
+          <div class="summary-list">
+            <div><span>Body</span><strong id="bodyValue">-</strong></div>
+            <div><span>Wheels</span><strong id="wheelValue">-</strong></div>
+            <div><span>Objects</span><strong id="objectValue">-</strong></div>
+            <div><span>Vertices</span><strong id="vertexValue">-</strong></div>
+            <div><span>Triangles</span><strong id="triangleValue">-</strong></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Build Output</p>
+              <h3>Package files</h3>
+            </div>
+          </div>
+          <div class="build-notice" id="buildNotice" hidden></div>
+          <div class="summary-list">
+            <div><span>FBX</span><strong id="fbxValue">-</strong></div>
+            <div><span>Texture</span><strong id="textureValue">-</strong></div>
+            <div><span>Deploy Folder</span><strong id="deployFolderValue">-</strong></div>
+            <div><span>Build Folder</span><strong id="buildFolderValue">-</strong></div>
+            <div><span>LOD</span><strong id="lodValue">Main model only</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Activity</p>
+            <h3>Pipeline log</h3>
+          </div>
+        </div>
+        <pre id="logOutput"></pre>
+      </section>
+    </section>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>

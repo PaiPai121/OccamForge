@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -38,8 +39,19 @@ def _remove_non_mesh_objects() -> None:
     bpy.ops.object.delete()
 
 
-def _join_mesh_objects(output_name: str) -> bpy.types.Object | None:
-    mesh_objects = _mesh_objects()
+def _copy_meshes_to_export_scene(mesh_objects: list[bpy.types.Object]) -> tuple[bpy.types.Scene, list[bpy.types.Object]]:
+    export_scene = bpy.data.scenes.new("AssetForge_CS_Strict_Export")
+    copied_objects: list[bpy.types.Object] = []
+    for obj in mesh_objects:
+        copied_mesh = obj.data.copy()
+        copied = bpy.data.objects.new(obj.name, copied_mesh)
+        copied.matrix_world = obj.matrix_world.copy()
+        export_scene.collection.objects.link(copied)
+        copied_objects.append(copied)
+    return export_scene, copied_objects
+
+
+def _join_mesh_objects(mesh_objects: list[bpy.types.Object], output_name: str) -> bpy.types.Object | None:
     if not mesh_objects:
         return None
     bpy.ops.object.select_all(action="DESELECT")
@@ -53,10 +65,32 @@ def _join_mesh_objects(output_name: str) -> bpy.types.Object | None:
     return joined
 
 
+def _apply_cities_skylines_orientation(joined: bpy.types.Object) -> None:
+    joined.rotation_euler.rotate_axis("X", math.radians(-90.0))
+    bpy.ops.object.select_all(action="DESELECT")
+    joined.select_set(True)
+    bpy.context.view_layer.objects.active = joined
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+
+def _write_orientation_fix_report(report_file: Path, output_fbx: Path, object_name: str) -> None:
+    payload = {
+        "fbx_file": str(output_fbx),
+        "object_name": object_name,
+        "rotation_degrees": {"x": -90.0, "y": 0.0, "z": 0.0},
+        "applied_rotation": True,
+        "applied_scale": True,
+        "source_blend_modified": False,
+        "reason": "Cities Skylines Asset Editor expects the vehicle to stand upright after import.",
+    }
+    report_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def export_strict(args: argparse.Namespace) -> dict[str, Any]:
     source = Path(args.source_blend_file)
     export_blend = Path(args.export_blend_file)
     output_fbx = Path(args.output_fbx)
+    orientation_report_file = output_fbx.with_name("orientation_fix_report.json")
     warnings: list[str] = [
         "Strict export experiment: all mesh objects are joined into one mesh for import compatibility testing."
     ]
@@ -66,18 +100,23 @@ def export_strict(args: argparse.Namespace) -> dict[str, Any]:
         return _report(source, export_blend, output_fbx, args.profile_id, 0, 0, 0, warnings, [f"Export blend file does not exist: {export_blend}"])
 
     bpy.ops.wm.open_mainfile(filepath=str(export_blend))
-    _remove_non_mesh_objects()
+    source_scene = bpy.context.scene
     mesh_objects = _mesh_objects()
     original_object_count = len(mesh_objects)
     if not mesh_objects:
         return _report(source, export_blend, output_fbx, args.profile_id, 0, 0, 0, warnings, ["No mesh objects found."])
 
-    _apply_transforms(mesh_objects)
     triangle_count = _triangle_count(mesh_objects)
-    joined = _join_mesh_objects(f"{source.stem}_strict")
+    export_scene, copied_objects = _copy_meshes_to_export_scene(mesh_objects)
+    bpy.context.window.scene = export_scene
+    _apply_transforms(copied_objects)
+    joined = _join_mesh_objects(copied_objects, f"{source.stem}_strict")
     if joined is None:
+        bpy.context.window.scene = source_scene
+        bpy.data.scenes.remove(export_scene)
         errors.append("Failed to join mesh objects.")
         return _report(source, export_blend, output_fbx, args.profile_id, triangle_count, 0, 0, warnings, errors)
+    _apply_cities_skylines_orientation(joined)
 
     bpy.ops.object.select_all(action="DESELECT")
     joined.select_set(True)
@@ -98,8 +137,12 @@ def export_strict(args: argparse.Namespace) -> dict[str, Any]:
         global_scale=1.0,
         path_mode="AUTO",
     )
+    _write_orientation_fix_report(orientation_report_file, output_fbx, joined.name)
+    bpy.context.window.scene = source_scene
+    bpy.data.scenes.remove(export_scene)
 
     warnings.append(f"Joined {original_object_count} mesh objects into one exported mesh.")
+    warnings.append("Cities Skylines orientation fix applied: export mesh rotated -90 degrees on X axis.")
     return _report(
         source,
         export_blend,
@@ -158,4 +201,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

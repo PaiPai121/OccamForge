@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import shutil
 import sys
@@ -28,6 +29,15 @@ def _mesh_objects() -> list[bpy.types.Object]:
     return [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
 
 
+def _object_triangle_count(obj: bpy.types.Object) -> int:
+    obj.data.calc_loop_triangles()
+    return len(obj.data.loop_triangles)
+
+
+def _largest_mesh_object(mesh_objects: list[bpy.types.Object]) -> bpy.types.Object | None:
+    return max(mesh_objects, key=_object_triangle_count, default=None)
+
+
 def _classify(mesh_objects: list[bpy.types.Object]) -> tuple[bpy.types.Object | None, list[bpy.types.Object], list[str], list[str]]:
     warnings: list[str] = []
     errors: list[str] = []
@@ -41,8 +51,11 @@ def _classify(mesh_objects: list[bpy.types.Object]) -> tuple[bpy.types.Object | 
         if len(non_wheel) == 1 and wheels:
             body = non_wheel[0]
             warnings.append(f"VehicleBody was inferred from the only non-wheel mesh object: {body.name}")
+        elif mesh_objects:
+            body = _largest_mesh_object(mesh_objects)
+            warnings.append(f"VehicleBody was inferred from the largest mesh object: {body.name}")
         else:
-            errors.append("VehicleBody object was not found and body could not be inferred from object names.")
+            errors.append("VehicleBody object was not found and no mesh objects were available for body inference.")
 
     if not strict_wheels and wheel_like:
         prefixes = sorted({obj.name.lower().split(".", 1)[0] for obj in wheel_like})
@@ -188,7 +201,37 @@ def _bake_diffuse_texture(objects: list[bpy.types.Object], texture_file: Path) -
     image.save_render(filepath=str(texture_file))
 
 
-def _export_single_mesh_fbx(objects: list[bpy.types.Object], output_fbx: Path, object_name: str) -> None:
+def _apply_cities_skylines_orientation(joined: bpy.types.Object) -> None:
+    joined.rotation_euler.rotate_axis("X", math.radians(-90.0))
+    bpy.ops.object.select_all(action="DESELECT")
+    joined.select_set(True)
+    bpy.context.view_layer.objects.active = joined
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+
+def _write_orientation_fix_report(
+    report_file: Path,
+    output_fbx: Path,
+    object_name: str,
+) -> None:
+    payload = {
+        "fbx_file": str(output_fbx),
+        "object_name": object_name,
+        "rotation_degrees": {"x": -90.0, "y": 0.0, "z": 0.0},
+        "applied_rotation": True,
+        "applied_scale": True,
+        "source_blend_modified": False,
+        "reason": "Cities Skylines Asset Editor expects the vehicle to stand upright after import.",
+    }
+    report_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _export_single_mesh_fbx(
+    objects: list[bpy.types.Object],
+    output_fbx: Path,
+    object_name: str,
+    orientation_report_file: Path,
+) -> None:
     source_scene = bpy.context.scene
     export_scene = bpy.data.scenes.new("AssetForge_CS_Export")
     copied_objects: list[bpy.types.Object] = []
@@ -219,6 +262,7 @@ def _export_single_mesh_fbx(objects: list[bpy.types.Object], output_fbx: Path, o
     joined = bpy.context.view_layer.objects.active
     joined.name = object_name
     joined.data.name = f"{object_name}_Mesh"
+    _apply_cities_skylines_orientation(joined)
 
     bpy.ops.export_scene.fbx(
         filepath=str(output_fbx),
@@ -235,24 +279,65 @@ def _export_single_mesh_fbx(objects: list[bpy.types.Object], output_fbx: Path, o
         global_scale=1.0,
         path_mode="AUTO",
     )
+    _write_orientation_fix_report(orientation_report_file, output_fbx, object_name)
     bpy.context.window.scene = source_scene
     bpy.data.scenes.remove(export_scene)
 
 
+def _unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(1, 1000):
+        candidate = path.with_name(f"{path.stem}_{index:03d}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not create a unique output path for {path}")
+
+
+def _unique_asset_base(folder: Path, base_name: str) -> str:
+    for index in range(0, 1000):
+        suffix = "" if index == 0 else f"_{index:03d}"
+        candidate = f"{base_name}{suffix}"
+        fbx_path = folder / f"{candidate}.fbx"
+        diffuse_path = folder / f"{candidate}_d.png"
+        if not fbx_path.exists() and not diffuse_path.exists():
+            return candidate
+    raise RuntimeError(f"Could not create a unique asset base name for {base_name}")
+
+
+def _copy_deploy_pair(
+    fbx_file: Path,
+    diffuse_file: Path,
+    deploy_folder: Path,
+    base_name: str,
+) -> tuple[Path, Path]:
+    deploy_folder.mkdir(parents=True, exist_ok=True)
+    asset_base = _unique_asset_base(deploy_folder, base_name)
+    deployed_fbx = deploy_folder / f"{asset_base}.fbx"
+    deployed_diffuse = deploy_folder / f"{asset_base}_d.png"
+    shutil.copy2(fbx_file, deployed_fbx)
+    shutil.copy2(diffuse_file, deployed_diffuse)
+    return deployed_fbx, deployed_diffuse
+
+
 def build(args: argparse.Namespace) -> dict[str, Any]:
     source = Path(args.blend_file)
-    build_folder = source.parent / "build"
+    build_folder = Path(args.build_folder) if args.build_folder else source.parent / "build"
+    deploy_folder = Path(args.deploy_folder) if args.deploy_folder else build_folder
     build_folder.mkdir(parents=True, exist_ok=True)
-    working_blend = build_folder / f"{source.stem}_build.blend"
-    fbx_file = build_folder / f"{source.stem}_cs.fbx"
-    diffuse_file = build_folder / f"{source.stem}_cs_d.png"
-    report_file = build_folder / "build_report.json"
+    working_blend = _unique_path(build_folder / f"{source.stem}_build.blend")
+    fbx_file = _unique_path(build_folder / f"{source.stem}_cs.fbx")
+    diffuse_file = _unique_path(build_folder / f"{source.stem}_cs_d.png")
+    report_file = _unique_path(build_folder / "build_report.json")
+    orientation_report_file = _unique_path(build_folder / "orientation_fix_report.json")
+    deployed_fbx_file: Path | None = None
+    deployed_diffuse_file: Path | None = None
     warnings: list[str] = []
     errors: list[str] = []
 
     if not source.exists():
         return _write_and_return(
-            _report(source, build_folder, working_blend, fbx_file, diffuse_file, report_file, args.profile_id, 0, 0, args.target_triangles, False, None, 0, 0, warnings, [f"Blend file does not exist: {source}"]),
+            _report(source, build_folder, deploy_folder, working_blend, fbx_file, diffuse_file, deployed_fbx_file, deployed_diffuse_file, report_file, args.profile_id, 0, 0, args.target_triangles, False, None, 0, 0, warnings, [f"Blend file does not exist: {source}"]),
             report_file,
         )
 
@@ -266,17 +351,22 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     if errors:
         return _write_and_return(
-            _report(source, build_folder, working_blend, fbx_file, diffuse_file, report_file, args.profile_id, original_triangles, original_triangles, args.target_triangles, False, body.name if body else None, len(wheels), len(objects), warnings, errors),
+            _report(source, build_folder, deploy_folder, working_blend, fbx_file, diffuse_file, deployed_fbx_file, deployed_diffuse_file, report_file, args.profile_id, original_triangles, original_triangles, args.target_triangles, False, body.name if body else None, len(wheels), len(objects), warnings, errors),
             report_file,
         )
 
     _apply_transforms(objects)
-    optimized, final_triangles, _ = _optimize_if_needed(
-        objects,
-        args.target_triangles,
-        args.minimum_ratio,
-        args.max_iterations,
-    )
+    if args.optimize:
+        optimized, final_triangles, _ = _optimize_if_needed(
+            objects,
+            args.target_triangles,
+            args.minimum_ratio,
+            args.max_iterations,
+        )
+    else:
+        optimized = False
+        final_triangles = original_triangles
+        warnings.append("Optimization disabled; original mesh triangle count was preserved.")
     if final_triangles > args.warning_triangles:
         warnings.append(
             f"Final triangle count {final_triangles} is above Cities Skylines warning limit {args.warning_triangles}."
@@ -286,16 +376,29 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     if not diffuse_file.exists():
         errors.append(f"Diffuse texture was not generated: {diffuse_file}")
         return _write_and_return(
-            _report(source, build_folder, working_blend, fbx_file, diffuse_file, report_file, args.profile_id, original_triangles, final_triangles, args.target_triangles, optimized, body.name if body else None, len(wheels), len(objects), warnings, errors),
+            _report(source, build_folder, deploy_folder, working_blend, fbx_file, diffuse_file, deployed_fbx_file, deployed_diffuse_file, report_file, args.profile_id, original_triangles, final_triangles, args.target_triangles, optimized, body.name if body else None, len(wheels), len(objects), warnings, errors),
             report_file,
         )
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(working_blend))
-    _export_single_mesh_fbx(objects, fbx_file, f"{source.stem}_cs")
+    _export_single_mesh_fbx(objects, fbx_file, f"{source.stem}_cs", orientation_report_file)
     warnings.append("Cities Skylines FBX exported as a single joined mesh for Asset Editor compatibility.")
+    warnings.append("Cities Skylines orientation fix applied: export mesh rotated -90 degrees on X axis.")
+
+    if deploy_folder.resolve() == build_folder.resolve():
+        deployed_fbx_file = fbx_file
+        deployed_diffuse_file = diffuse_file
+    else:
+        deployed_fbx_file, deployed_diffuse_file = _copy_deploy_pair(
+            fbx_file,
+            diffuse_file,
+            deploy_folder,
+            f"{source.stem}_cs",
+        )
+        warnings.append(f"Deployed Cities Skylines import files to {deploy_folder}.")
 
     return _write_and_return(
-        _report(source, build_folder, working_blend, fbx_file, diffuse_file, report_file, args.profile_id, original_triangles, final_triangles, args.target_triangles, optimized, body.name if body else None, len(wheels), len(objects), warnings, []),
+        _report(source, build_folder, deploy_folder, working_blend, fbx_file, diffuse_file, deployed_fbx_file, deployed_diffuse_file, report_file, args.profile_id, original_triangles, final_triangles, args.target_triangles, optimized, body.name if body else None, len(wheels), len(objects), warnings, []),
         report_file,
     )
 
@@ -303,9 +406,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 def _report(
     source: Path,
     build_folder: Path,
+    deploy_folder: Path | None,
     working_blend: Path,
     fbx_file: Path,
     diffuse_file: Path,
+    deployed_fbx_file: Path | None,
+    deployed_diffuse_file: Path | None,
     report_file: Path,
     profile_id: str,
     original_triangles: int,
@@ -321,9 +427,12 @@ def _report(
     return {
         "source_blend_file": str(source),
         "build_folder": str(build_folder),
+        "deploy_folder": str(deploy_folder) if deploy_folder else None,
         "working_blend_file": str(working_blend),
         "fbx_file": str(fbx_file),
         "diffuse_texture_file": str(diffuse_file),
+        "deployed_fbx_file": str(deployed_fbx_file) if deployed_fbx_file else None,
+        "deployed_diffuse_texture_file": str(deployed_diffuse_file) if deployed_diffuse_file else None,
         "report_file": str(report_file),
         "profile_id": profile_id,
         "original_triangle_count": original_triangles,
@@ -353,6 +462,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--critical-triangles", type=int, required=True)
     parser.add_argument("--minimum-ratio", type=float, required=True)
     parser.add_argument("--max-iterations", type=int, required=True)
+    parser.add_argument("--build-folder", default=None)
+    parser.add_argument("--deploy-folder", default=None)
+    parser.add_argument("--optimize", action="store_true")
     return parser.parse_args(argv)
 
 

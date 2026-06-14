@@ -7,8 +7,15 @@ from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 from assetforge.domain.analysis import VehicleAnalysisReport
 from assetforge.domain.build import CitiesSkylinesBuildReport
 from assetforge.domain.export import VehicleExportReport
+from assetforge.domain.model_preview import ModelPreviewReport
 from assetforge.domain.optimization import VehicleOptimizationReport
+from assetforge.domain.optimization_preview import OptimizationPreviewReport
+from assetforge.domain.real_optimization_preview import RealOptimizationPreviewReport
 from assetforge.domain.validation import ValidationReport
+from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
+from assetforge.services.model_preview import ModelPreviewService
+from assetforge.services.optimization_preview import OptimizationPreviewService
+from assetforge.services.real_optimization_preview import RealOptimizationPreviewService
 from assetforge.services.vehicle_analysis import VehicleAnalysisService
 from assetforge.services.vehicle_export import VehicleExportService
 from assetforge.services.vehicle_optimization import VehicleOptimizationService
@@ -89,6 +96,128 @@ class OptimizationWorker(QRunnable):
             self.signals.failed.emit(str(exc))
             return
         self.signals.finished.emit(optimization_report)
+
+
+class OptimizationPreviewWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    analysis_finished = Signal(object)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class OptimizationPreviewWorker(QRunnable):
+    def __init__(
+        self,
+        analysis_service: VehicleAnalysisService,
+        preview_service: OptimizationPreviewService,
+        blend_file: Path,
+        profile_id: str,
+        targets: tuple[int, ...],
+    ) -> None:
+        super().__init__()
+        self._analysis_service = analysis_service
+        self._preview_service = preview_service
+        self._blend_file = blend_file
+        self._profile_id = profile_id
+        self._targets = targets
+        self.signals = OptimizationPreviewWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Analyzing selected file for optimization preview...")
+            analysis_report = self._analysis_service.analyze_vehicle(self._blend_file)
+            self.signals.analysis_finished.emit(analysis_report)
+            if analysis_report.errors:
+                self.signals.failed.emit("\n".join(analysis_report.errors))
+                return
+            report: OptimizationPreviewReport = self._preview_service.preview(
+                analysis_report.triangle_count,
+                self._profile_id,
+                self._targets,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class RealOptimizationPreviewWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class RealOptimizationPreviewWorker(QRunnable):
+    def __init__(
+        self,
+        preview_service: RealOptimizationPreviewService,
+        blend_file: Path,
+        profile_id: str,
+        target_triangle_count: int,
+        output_directory: Path,
+    ) -> None:
+        super().__init__()
+        self._preview_service = preview_service
+        self._blend_file = blend_file
+        self._profile_id = profile_id
+        self._target_triangle_count = target_triangle_count
+        self._output_directory = output_directory
+        self.signals = RealOptimizationPreviewWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Generating real Blender optimization preview...")
+            report: RealOptimizationPreviewReport = self._preview_service.generate(
+                self._blend_file,
+                self._profile_id,
+                self._target_triangle_count,
+                self._output_directory,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class ModelPreviewWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class ModelPreviewWorker(QRunnable):
+    def __init__(
+        self,
+        preview_service: ModelPreviewService,
+        blend_file: Path,
+        output_directory: Path,
+    ) -> None:
+        super().__init__()
+        self._preview_service = preview_service
+        self._blend_file = blend_file
+        self._output_directory = output_directory
+        self.signals = ModelPreviewWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Rendering original model preview...")
+            report: ModelPreviewReport = self._preview_service.generate(
+                self._blend_file,
+                self._output_directory,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
 
 
 class ExportWorkerSignals(QObject):
@@ -183,10 +312,20 @@ class CitiesSkylinesBuildWorkerSignals(QObject):
 
 
 class CitiesSkylinesBuildWorker(QRunnable):
-    def __init__(self, build_service: CitiesSkylinesBuildService, blend_file: Path) -> None:
+    def __init__(
+        self,
+        build_service: CitiesSkylinesBuildService,
+        blend_file: Path,
+        build_folder: Path | None = None,
+        optimize: bool = False,
+        target_triangle_count: int | None = None,
+    ) -> None:
         super().__init__()
         self._build_service = build_service
         self._blend_file = blend_file
+        self._build_folder = build_folder
+        self._optimize = optimize
+        self._target_triangle_count = target_triangle_count
         self.signals = CitiesSkylinesBuildWorkerSignals()
 
     @Slot()
@@ -194,9 +333,13 @@ class CitiesSkylinesBuildWorker(QRunnable):
         self.signals.started.emit()
         try:
             self.signals.progress.emit("Building Cities Skylines asset package...")
-            report: CitiesSkylinesBuildReport = self._build_service.build(self._blend_file)
+            report: CitiesSkylinesBuildReport = self._build_service.build(
+                self._blend_file,
+                self._build_folder,
+                self._optimize,
+                self._target_triangle_count,
+            )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
             self.signals.failed.emit(str(exc))
             return
         self.signals.finished.emit(report)
-from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService

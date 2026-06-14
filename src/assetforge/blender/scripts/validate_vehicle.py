@@ -26,6 +26,15 @@ def _mesh_objects() -> list[bpy.types.Object]:
     return [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
 
 
+def _object_triangle_count(obj: bpy.types.Object) -> int:
+    obj.data.calc_loop_triangles()
+    return len(obj.data.loop_triangles)
+
+
+def _largest_mesh_object(mesh_objects: list[bpy.types.Object]) -> bpy.types.Object | None:
+    return max(mesh_objects, key=_object_triangle_count, default=None)
+
+
 def _classify(mesh_objects: list[bpy.types.Object]) -> tuple[bpy.types.Object | None, list[bpy.types.Object], list[bpy.types.Object], list[dict[str, str]]]:
     issues: list[dict[str, str]] = []
     body = next((obj for obj in mesh_objects if obj.name == "VehicleBody"), None)
@@ -40,6 +49,11 @@ def _classify(mesh_objects: list[bpy.types.Object]) -> tuple[bpy.types.Object | 
             issues.append(
                 _issue("body_detection", "warning", f"Body inferred from only non-wheel mesh: {body.name}")
             )
+        elif mesh_objects:
+            body = _largest_mesh_object(mesh_objects)
+            issues.append(
+                _issue("body_detection", "warning", f"Body inferred from largest mesh object: {body.name}")
+            )
         else:
             issues.append(_issue("body_detection", "critical", "Vehicle body could not be detected."))
 
@@ -49,7 +63,7 @@ def _classify(mesh_objects: list[bpy.types.Object]) -> tuple[bpy.types.Object | 
             _issue("wheel_detection", "warning", "Wheels inferred from prefixes: " + ", ".join(prefixes))
         )
     elif not wheels:
-        issues.append(_issue("wheel_detection", "critical", "No wheel objects were detected."))
+        issues.append(_issue("wheel_detection", "warning", "No wheel objects were detected."))
 
     known = set(wheels)
     if body is not None:

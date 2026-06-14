@@ -12,6 +12,9 @@ env/
 .mypy_cache/
 dist/
 build/
+previews/
+previews*/
+AssetForge.spec
 *.egg-info/
 logs/
 *.log
@@ -20,5 +23,6 @@ logs/
 *_cs_strict.fbx
 build/
 validation_report.json
+orientation_fix_report.json
 .coverage
 htmlcov/

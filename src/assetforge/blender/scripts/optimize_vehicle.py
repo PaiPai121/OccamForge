@@ -27,6 +27,10 @@ def _mesh_objects() -> list[bpy.types.Object]:
     return [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
 
 
+def _largest_mesh_object(mesh_objects: list[bpy.types.Object]) -> bpy.types.Object | None:
+    return max(mesh_objects, key=_count_object_triangles, default=None)
+
+
 def _classify_vehicle(mesh_objects: list[bpy.types.Object]) -> tuple[bpy.types.Object | None, list[bpy.types.Object], list[str], list[str]]:
     warnings: list[str] = []
     errors: list[str] = []
@@ -41,8 +45,11 @@ def _classify_vehicle(mesh_objects: list[bpy.types.Object]) -> tuple[bpy.types.O
         if len(non_wheel_objects) == 1 and wheels:
             body = non_wheel_objects[0]
             warnings.append(f"VehicleBody was inferred from the only non-wheel mesh object: {body.name}")
+        elif mesh_objects:
+            body = _largest_mesh_object(mesh_objects)
+            warnings.append(f"VehicleBody was inferred from the largest mesh object: {body.name}")
         else:
-            errors.append("VehicleBody object was not found and body could not be inferred from object names.")
+            errors.append("VehicleBody object was not found and no mesh objects were available for body inference.")
 
     if not strict_wheels and wheel_like_objects:
         prefixes = sorted({obj.name.lower().split(".", 1)[0] for obj in wheel_like_objects})

@@ -58,5 +58,8 @@ class BlenderVehicleOperations(ABC):
         self,
         blend_file: Path,
         profile: AssetProfile,
+        build_folder: Path | None = None,
+        optimize: bool = False,
+        target_triangle_count: int | None = None,
     ) -> CitiesSkylinesBuildReport:
         raise NotImplementedError("Cities Skylines build is not implemented by this adapter.")

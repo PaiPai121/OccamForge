@@ -12,6 +12,7 @@ def test_report_round_trip() -> None:
         object_count=5,
         vertex_count=100,
         triangle_count=200,
+        preview_mesh_path=Path("previews/RhinoTank_viewport.obj"),
         objects=(
             VehicleObjectSummary(
                 name="VehicleBody",
@@ -28,4 +29,3 @@ def test_report_round_trip() -> None:
     restored = report_from_dict(payload)
 
     assert restored == report
-

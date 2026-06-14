@@ -10,9 +10,12 @@ class CitiesSkylinesBuildReport:
 
     source_blend_file: Path
     build_folder: Path
+    deploy_folder: Path | None
     working_blend_file: Path
     fbx_file: Path
     diffuse_texture_file: Path
+    deployed_fbx_file: Path | None
+    deployed_diffuse_texture_file: Path | None
     report_file: Path
     profile_id: str
     original_triangle_count: int
@@ -28,4 +31,3 @@ class CitiesSkylinesBuildReport:
     @property
     def is_successful(self) -> bool:
         return not self.errors
-
