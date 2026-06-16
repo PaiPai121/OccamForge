@@ -1,10 +1,10 @@
 [project]
-name = "assetforge"
-version = "0.1.0"
-description = "Desktop pipeline tool for converting Blender vehicle models into game-ready assets."
+name = "occamforge"
+version = "1.0.0"
+description = "Open-source desktop tool for converting Blender models into game-ready assets."
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [{ name = "AssetForge" }]
+authors = [{ name = "PaiPai121" }]
 dependencies = [
     "PySide6>=6.7",
 ]
@@ -16,6 +16,17 @@ dev = [
 ]
 
 [project.scripts]
+occamforge = "assetforge.app.main:main"
+occamforge-analyze = "assetforge.app.cli:main"
+occamforge-optimize = "assetforge.app.optimize_cli:main"
+occamforge-export-fbx = "assetforge.app.export_cli:main"
+occamforge-export-fbx-strict = "assetforge.app.export_strict_cli:main"
+occamforge-validate = "assetforge.app.validate_cli:main"
+occamforge-build-cs = "assetforge.app.build_cs_cli:main"
+occamforge-real-preview = "assetforge.app.real_preview_cli:main"
+occamforge-preprocess = "assetforge.app.preprocess_cli:main"
+occamforge-geometry-report = "assetforge.app.geometry_report_cli:main"
+occamforge-simplification-report = "assetforge.app.simplification_report_cli:main"
 assetforge = "assetforge.app.main:main"
 assetforge-analyze = "assetforge.app.cli:main"
 assetforge-optimize = "assetforge.app.optimize_cli:main"

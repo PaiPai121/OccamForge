@@ -21,6 +21,7 @@ simplification_reports/
 debug_desktop.png
 blender_test.blend
 AssetForge.spec
+OccamForge.spec
 *.egg-info/
 logs/
 *.log

@@ -15,8 +15,8 @@ def main() -> int:
     config = AssetForgeConfig.from_environment()
     configure_logging(config.log_level, Path.cwd() / "logs")
     app = QApplication(sys.argv)
-    app.setApplicationName("AssetForge")
-    app.setOrganizationName("AssetForge")
+    app.setApplicationName("OccamForge")
+    app.setOrganizationName("OccamForge")
     services = build_app_services(config)
     window = WebMainWindow(
         services.vehicle_analysis,

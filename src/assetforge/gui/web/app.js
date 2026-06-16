@@ -703,7 +703,7 @@ function runWithOptionalPreprocess(action, pipelineStage = 1) {
       optimize: action === "build" && hasOptimizedPreviewForTarget(),
     };
     lastPreprocessContinuationKey = null;
-    appendLog("Auto cleanup will run first, then AssetForge will continue automatically.");
+    appendLog("Auto cleanup will run first, then OccamForge will continue automatically.");
     bridge.preprocess();
     return;
   }
@@ -786,7 +786,7 @@ function openPipelineReviewModal() {
     ];
     lines = [
       "This stage uses the current candidate report and only applies conservative reduction.",
-      "If it cannot reach the target without crossing safety limits, AssetForge will stop and ask before Stage 2.",
+      "If it cannot reach the target without crossing safety limits, OccamForge will stop and ask before Stage 2.",
     ];
   } else if (kind === "stage2_plan") {
     title = "Stage 1 result";
@@ -1216,5 +1216,5 @@ new QWebChannel(qt.webChannelTransport, (channel) => {
   bridge.logAdded.connect(appendLog);
   bindUi();
   bridge.initialState(parseState);
-  appendLog("AssetForge UI ready.");
+  appendLog("OccamForge UI ready.");
 });
