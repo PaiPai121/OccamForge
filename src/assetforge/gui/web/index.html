@@ -23,12 +23,11 @@
 
       <section class="hero">
         <div class="hero-copy">
-          <h3>Build a game-ready vehicle without opening Blender.</h3>
-          <p>Select a Blender model, set the maximum triangle count, preview the real result, then build the Cities Skylines package. Current builds export the main model only; LOD generation is not implemented yet.</p>
+          <h3>Build a Cities Skylines vehicle from a Blender model.</h3>
+          <p>Select a model, choose whether to reduce triangles, preview the result when needed, then build the import files. AssetForge runs the safe cleanup step automatically before preview or build.</p>
         </div>
         <div class="actions">
-          <button id="selectFileBtn">Select Blend File</button>
-          <button class="secondary" id="browseBlenderBtn">Browse Blender</button>
+          <button id="selectFileBtn">Select Model File</button>
         </div>
       </section>
 
@@ -36,27 +35,37 @@
         <div class="panel controls-panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Build Settings</p>
-              <h3>Export options</h3>
+              <p class="eyebrow">Recommended Workflow</p>
+              <h3>Build settings</h3>
             </div>
           </div>
+          <div class="workflow-strip" id="workflowStrip">
+            <div class="workflow-step" id="stepSelect"><span>1</span><strong>Select</strong><small>Choose a model</small></div>
+            <div class="workflow-step" id="stepReview"><span>2</span><strong>Review</strong><small>Automatic preview</small></div>
+            <div class="workflow-step" id="stepBuild"><span>3</span><strong>Build</strong><small>Create import files</small></div>
+          </div>
           <label class="check-row">
-            <input id="optimizeToggle" type="checkbox">
+            <input id="autoPreprocessToggle" type="checkbox" checked>
             <span>
-              <strong>Optimize triangle count</strong>
-              <small>Off by default. Leave this unchecked to preserve the original mesh triangle count.</small>
+              <strong>Auto clean before preview/build</strong>
+              <small>Runs the safe Limited Dissolve cleanup automatically. This creates a copy and leaves the original file unchanged.</small>
             </span>
           </label>
+          <input id="optimizeToggle" type="hidden" checked>
           <div class="optimize-controls" id="optimizeControls">
+            <div class="setting-label">
+              <strong>Optimization target</strong>
+              <small>Used after current model analysis has identified protect and cleanup candidates.</small>
+            </div>
             <div class="target-row">
-              <input id="targetTriangles" type="number" min="100" step="500" value="15000">
+              <input id="targetTriangles" type="number" min="100" step="500" value="3000">
               <span>tris max</span>
             </div>
-            <input id="targetSlider" class="slider" type="range" min="1000" max="30000" step="500" value="15000">
+            <input id="targetSlider" class="slider" type="range" min="1000" max="30000" step="500" value="3000">
             <div class="preset-row">
-              <button class="chip" data-target="25000">Fast</button>
+              <button class="chip" data-target="25000">Safe</button>
               <button class="chip" data-target="15000">Balanced</button>
-              <button class="chip" data-target="5000">High Quality</button>
+              <button class="chip" data-target="3000">Game Target</button>
             </div>
           </div>
           <div class="output-box">
@@ -64,14 +73,21 @@
             <strong id="outputFolderValue">-</strong>
             <small id="outputFolderSource">-</small>
           </div>
-          <div class="button-grid">
-            <button id="analyzeBtn">Refresh Model Info</button>
-            <button id="previewBtn">Generate Real Preview</button>
-            <button class="secondary" id="applyPreviewBtn">Apply Current Preview</button>
-            <button class="secondary" id="browseOutputBtn">Browse Output Folder</button>
-            <button class="build" id="buildBtn">Build Cities Skylines Asset</button>
+          <div class="primary-actions">
+            <button id="workflowActionBtn">Analyze Stage 1</button>
+            <button class="build" id="buildBtn">Build Asset</button>
           </div>
           <div class="build-summary" id="buildSummary" hidden></div>
+          <details class="advanced-tools">
+            <summary>Diagnostics and setup</summary>
+            <div class="button-grid">
+              <button class="secondary" id="analyzeBtn">Refresh Model Info</button>
+              <button class="secondary" id="simplificationReportBtn">Compare Last Reduction</button>
+              <button class="secondary" id="applyPreviewBtn">Use Preview Target</button>
+              <button class="secondary" id="browseOutputBtn">Change Output Folder</button>
+              <button class="secondary" id="browseBlenderBtn">Configure Blender</button>
+            </div>
+          </details>
         </div>
 
         <div class="panel preview-panel">
@@ -96,10 +112,141 @@
             <div><span>Target</span><strong id="metricTarget">-</strong></div>
             <div><span>Actual</span><strong id="metricActual">-</strong></div>
             <div><span>Reduction</span><strong id="metricReduction">-</strong></div>
-            <div><span>Score</span><strong id="metricScore">-</strong></div>
-            <div><span>Rating</span><strong id="metricRating">-</strong></div>
+            <div><span>Import Score</span><strong id="metricScore">-</strong></div>
+            <div><span>Import Risk</span><strong id="metricRating">-</strong></div>
           </div>
-          <div class="notice" id="previewNotice"></div>
+          <div class="result-notice" id="previewNotice" hidden></div>
+        </div>
+      </section>
+
+      <section class="analysis-summary-panel" id="analysisSummaryPanel" hidden>
+        <div class="analysis-summary-header">
+          <div>
+            <p class="eyebrow" id="analysisSummaryEyebrow">Analysis Ready</p>
+            <h3 id="analysisSummaryTitle">Candidate-guided optimization can run now</h3>
+          </div>
+          <div class="analysis-summary-actions">
+            <button class="secondary" id="openReportBtn">Open Report</button>
+            <button id="summaryOptimizeBtn">Review Stage 1</button>
+          </div>
+        </div>
+        <div class="candidate-summary" id="candidateSummary"></div>
+      </section>
+
+      <div class="modal-backdrop" id="reportModal" hidden>
+        <section class="panel geometry-panel report-modal" id="geometryPanel" hidden>
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Current Model Analysis</p>
+              <h3>Optimization candidate report</h3>
+            </div>
+            <button class="secondary" id="closeReportBtn">Close</button>
+          </div>
+          <div class="report-complete" id="geometryCompleteNotice" hidden></div>
+          <div class="geometry-layout">
+            <div class="geometry-preview" id="geometryHeatmap">
+              <div class="empty-preview">Heatmap will appear here</div>
+            </div>
+            <div class="geometry-stats">
+              <div class="summary-list">
+                <div><span>Vertices</span><strong id="geoVertices">-</strong></div>
+                <div><span>Edges</span><strong id="geoEdges">-</strong></div>
+                <div><span>Faces</span><strong id="geoFaces">-</strong></div>
+                <div><span>Triangles</span><strong id="geoTriangles">-</strong></div>
+                <div><span>Bounding Box</span><strong id="geoBounds">-</strong></div>
+                <div><span>Planar Regions</span><strong id="geoPlanar">-</strong></div>
+                <div><span>Boundary Edges</span><strong id="geoBoundary">-</strong></div>
+                <div><span>Silhouette Protected</span><strong id="geoSilhouette">-</strong></div>
+                <div><span>Triangle Area</span><strong id="geoTriangleArea">-</strong></div>
+              </div>
+            </div>
+          </div>
+          <div class="geometry-columns">
+            <div>
+              <h4>Curvature</h4>
+              <div class="dense-table" id="curvatureList"></div>
+            </div>
+            <div>
+              <h4>Top Dense Regions</h4>
+              <div class="dense-table" id="denseRegionList"></div>
+            </div>
+          </div>
+          <div class="geometry-columns single">
+            <div>
+              <h4>Silhouette Protected Regions</h4>
+              <div class="dense-table" id="silhouetteRegionList"></div>
+            </div>
+          </div>
+          <div class="geometry-columns single">
+            <div>
+              <h4>Optimization Candidates</h4>
+              <div class="dense-table" id="optimizationCandidateList"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-backdrop" id="pipelineModal" hidden>
+        <section class="panel report-modal pipeline-review-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow" id="pipelineReviewEyebrow">Pipeline Review</p>
+              <h3 id="pipelineReviewTitle">Review optimization stage</h3>
+            </div>
+            <button class="secondary" id="closePipelineBtn">Close</button>
+          </div>
+          <div class="pipeline-review-layout">
+            <div class="geometry-preview" id="pipelineReviewImage">
+              <div class="empty-preview">Stage preview will appear here</div>
+            </div>
+            <div class="pipeline-review-copy">
+              <div class="summary-list" id="pipelineReviewStats"></div>
+              <div class="result-notice" id="pipelineReviewNotice"></div>
+              <div class="stage-debug-panel" id="stageDebugPanel" hidden>
+                <div class="stage-debug-tabs" id="stageDebugTabs"></div>
+                <div class="stage-debug-meta" id="stageDebugMeta"></div>
+              </div>
+              <div class="primary-actions">
+                <button id="applyPipelineStageBtn">Apply This Stage</button>
+                <button class="secondary" id="stopPipelineBtn">Stop Here</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel geometry-panel" id="simplificationPanel" hidden>
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Reduction Comparison</p>
+            <h3>Where triangles were removed</h3>
+          </div>
+        </div>
+        <div class="geometry-layout">
+          <div class="geometry-preview" id="simplificationHeatmap">
+            <div class="empty-preview">Simplification heatmap will appear here</div>
+          </div>
+          <div class="geometry-stats">
+            <div class="summary-list">
+              <div><span>Original</span><strong id="simpOriginal">-</strong></div>
+              <div><span>Optimized</span><strong id="simpOptimized">-</strong></div>
+              <div><span>Removed</span><strong id="simpRemoved">-</strong></div>
+              <div><span>Reduction</span><strong id="simpReduction">-</strong></div>
+              <div><span>Source</span><strong id="simpSource">-</strong></div>
+              <div><span>Optimized File</span><strong id="simpOptimizedFile">-</strong></div>
+            </div>
+          </div>
+        </div>
+        <div class="legend-row">
+          <span class="legend green">Little simplification</span>
+          <span class="legend yellow">Medium simplification</span>
+          <span class="legend red">Heavy simplification</span>
+        </div>
+        <div class="geometry-columns single">
+          <div>
+            <h4>Top Reduction Regions</h4>
+            <div class="dense-table" id="simplificationRegionList"></div>
+          </div>
         </div>
       </section>
 

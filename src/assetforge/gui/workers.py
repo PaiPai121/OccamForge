@@ -7,15 +7,21 @@ from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 from assetforge.domain.analysis import VehicleAnalysisReport
 from assetforge.domain.build import CitiesSkylinesBuildReport
 from assetforge.domain.export import VehicleExportReport
+from assetforge.domain.geometry_report import GeometryReport
 from assetforge.domain.model_preview import ModelPreviewReport
 from assetforge.domain.optimization import VehicleOptimizationReport
 from assetforge.domain.optimization_preview import OptimizationPreviewReport
+from assetforge.domain.preprocess import PreprocessReport
 from assetforge.domain.real_optimization_preview import RealOptimizationPreviewReport
+from assetforge.domain.simplification_report import SimplificationReport
 from assetforge.domain.validation import ValidationReport
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
+from assetforge.services.geometry_report import GeometryReportService
 from assetforge.services.model_preview import ModelPreviewService
 from assetforge.services.optimization_preview import OptimizationPreviewService
+from assetforge.services.preprocess import PreprocessService
 from assetforge.services.real_optimization_preview import RealOptimizationPreviewService
+from assetforge.services.simplification_report import SimplificationReportService
 from assetforge.services.vehicle_analysis import VehicleAnalysisService
 from assetforge.services.vehicle_export import VehicleExportService
 from assetforge.services.vehicle_optimization import VehicleOptimizationService
@@ -98,6 +104,41 @@ class OptimizationWorker(QRunnable):
         self.signals.finished.emit(optimization_report)
 
 
+class PreprocessWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class PreprocessWorker(QRunnable):
+    def __init__(
+        self,
+        preprocess_service: PreprocessService,
+        blend_file: Path,
+        angle_degrees: float = 1.0,
+    ) -> None:
+        super().__init__()
+        self._preprocess_service = preprocess_service
+        self._blend_file = blend_file
+        self._angle_degrees = angle_degrees
+        self.signals = PreprocessWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Running safe preprocess with Limited Dissolve...")
+            report: PreprocessReport = self._preprocess_service.preprocess(
+                self._blend_file,
+                self._angle_degrees,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
 class OptimizationPreviewWorkerSignals(QObject):
     started = Signal()
     progress = Signal(str)
@@ -159,6 +200,7 @@ class RealOptimizationPreviewWorker(QRunnable):
         profile_id: str,
         target_triangle_count: int,
         output_directory: Path,
+        pipeline_stage: int = 1,
     ) -> None:
         super().__init__()
         self._preview_service = preview_service
@@ -166,6 +208,7 @@ class RealOptimizationPreviewWorker(QRunnable):
         self._profile_id = profile_id
         self._target_triangle_count = target_triangle_count
         self._output_directory = output_directory
+        self._pipeline_stage = pipeline_stage
         self.signals = RealOptimizationPreviewWorkerSignals()
 
     @Slot()
@@ -178,6 +221,7 @@ class RealOptimizationPreviewWorker(QRunnable):
                 self._profile_id,
                 self._target_triangle_count,
                 self._output_directory,
+                self._pipeline_stage,
             )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
             self.signals.failed.emit(str(exc))
@@ -212,6 +256,79 @@ class ModelPreviewWorker(QRunnable):
             self.signals.progress.emit("Rendering original model preview...")
             report: ModelPreviewReport = self._preview_service.generate(
                 self._blend_file,
+                self._output_directory,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class GeometryReportWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class GeometryReportWorker(QRunnable):
+    def __init__(
+        self,
+        geometry_service: GeometryReportService,
+        source_file: Path,
+        output_directory: Path,
+    ) -> None:
+        super().__init__()
+        self._geometry_service = geometry_service
+        self._source_file = source_file
+        self._output_directory = output_directory
+        self.signals = GeometryReportWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Analyzing geometry density in Blender...")
+            report: GeometryReport = self._geometry_service.generate(
+                self._source_file,
+                self._output_directory,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class SimplificationReportWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class SimplificationReportWorker(QRunnable):
+    def __init__(
+        self,
+        simplification_service: SimplificationReportService,
+        source_blend_file: Path,
+        optimized_blend_file: Path | None,
+        output_directory: Path,
+    ) -> None:
+        super().__init__()
+        self._simplification_service = simplification_service
+        self._source_blend_file = source_blend_file
+        self._optimized_blend_file = optimized_blend_file
+        self._output_directory = output_directory
+        self.signals = SimplificationReportWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Comparing original and optimized geometry...")
+            report: SimplificationReport = self._simplification_service.generate(
+                self._source_blend_file,
+                self._optimized_blend_file,
                 self._output_directory,
             )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.

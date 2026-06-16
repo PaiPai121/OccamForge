@@ -22,8 +22,11 @@ def main() -> int:
         services.vehicle_analysis,
         services.vehicle_validation,
         services.cities_skylines_build,
+        services.preprocess,
         services.real_optimization_preview,
         services.model_preview,
+        services.geometry_report,
+        services.simplification_report,
         services.blender_configuration,
     )
     window.resize(1280, 860)

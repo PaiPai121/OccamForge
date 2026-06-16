@@ -106,6 +106,7 @@ The build runs in Blender background mode and does not require the user to open 
 Workflow:
 
 - analyze and classify body/wheels
+- use the preprocessed copy when the user has run Safe Preprocess in the GUI
 - preserve the original mesh triangle count by default
 - optimize only when the user enables triangle optimization and provides a target
 - Smart UV Project all mesh objects
@@ -132,6 +133,28 @@ Cities Skylines texture suffixes:
 - `_i`: illumination/emissive map, reserved for future support
 
 Validation now treats missing image textures as `Can Auto Generate Texture`, because the build workflow can produce `_cs_d.png` automatically.
+
+## Safe Preprocess
+
+Safe Preprocess is an optional low-risk cleanup stage before optimization. It creates `<source>_preprocessed.blend` and never modifies the original file.
+
+The CLI entry point is:
+
+```powershell
+assetforge-preprocess .\rhino_tank.blend --angle-degrees 1.0
+```
+
+Current rules:
+
+- copy the source `.blend`
+- open the copy in Blender background mode
+- select each mesh object
+- run Blender Limited Dissolve with a conservative angle threshold, default `1.0` degree
+- keep boundary dissolving disabled
+- save the preprocessed copy
+- write `<source>_preprocessed_report.json`
+
+Safe Preprocess does not chase a target triangle count. It only removes low-risk coplanar geometry before optional Optimize. In the GUI, successful preprocessing becomes the active input for subsequent real preview and Cities Skylines build steps while the exported asset name still uses the original source name.
 
 ## Optimization Preview
 
@@ -194,3 +217,71 @@ Each `RealOptimizationPreviewItem` contains:
 - errors
 
 The source `.blend` is never modified. The operation may take longer than the estimated preview, so it runs in a Qt worker and disables the preview button while active to avoid duplicate concurrent Blender jobs.
+
+## Geometry Report
+
+Phase 7 adds geometry analysis before optimization. This path does not depend on vehicle naming, body detection, wheel detection, or object count. It supports single-mesh assets and imported model formats:
+
+- `.blend`
+- `.obj`
+- `.fbx`
+- `.glb`
+- `.gltf`
+
+The CLI entry point is:
+
+```powershell
+assetforge-geometry-report .\rhino_tank.blend --output .\geometry_reports
+```
+
+Pipeline:
+
+- load or import the selected model in Blender background mode
+- inspect every mesh object in world space
+- count vertices, edges, faces, loop triangles, and bounding box size
+- group connected planar regions where neighboring face normals differ by less than 5 degrees
+- approximate curvature from neighboring face normal angles
+- count boundary edges and total boundary edge length
+- bucket triangle centroids into a spatial grid and compute triangles per unit surface area
+- report the top 20 densest grid regions
+- calculate min, median, and max triangle area
+- assign heatmap materials by density and render `geometry_report.png`
+- write `geometry_report.json`
+
+Heatmap colors:
+
+- blue: low triangle density
+- green: medium triangle density
+- yellow: high triangle density
+- red: extreme triangle density
+
+This report is a diagnostic tool for deciding where future optimization algorithms should focus. It intentionally does not alter the current Optimize, Export, or Build workflows.
+
+## Simplification Diff Visualization
+
+Phase 8 adds a diagnostic comparison between the original `.blend` and an optimized `.blend`. It answers where triangles were removed after optimization.
+
+The CLI entry point is:
+
+```powershell
+assetforge-simplification-report .\rhino_tank.blend --optimized-blend .\rhino_tank_optimized.blend --output .\simplification_reports
+```
+
+If `--optimized-blend` is omitted, AssetForge uses `<source>_optimized.blend`.
+
+Pipeline:
+
+- load the original `.blend` and count triangles in a fixed world-space grid
+- load the optimized `.blend` and count triangles in the same grid
+- compute removed triangle count and local reduction percentage per grid cell
+- render the original model with simplification colors
+- write `simplification_report.json`
+- write `simplification_heatmap.png`
+
+Heatmap colors:
+
+- green: little simplification
+- yellow: medium simplification
+- red: heavy simplification
+
+This comparison is approximate by design. Decimation rewrites topology, so AssetForge compares local triangle density in matching world-space regions instead of trying to match individual triangles one-to-one. The goal is to reveal whether retained objects such as wheels kept their triangle density while the body lost detail.

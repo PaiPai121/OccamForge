@@ -8,20 +8,29 @@ from assetforge.domain.asset_profile import AssetProfile
 from assetforge.domain.analysis import VehicleAnalysisReport
 from assetforge.domain.build import CitiesSkylinesBuildReport
 from assetforge.domain.export import VehicleExportReport
+from assetforge.domain.geometry_report import GeometryReport
 from assetforge.domain.model_preview import ModelPreviewReport
 from assetforge.domain.optimization import VehicleOptimizationReport
+from assetforge.domain.preprocess import PreprocessReport
 from assetforge.domain.real_optimization_preview import RealOptimizationPreviewReport
+from assetforge.domain.simplification_report import SimplificationReport
 from assetforge.domain.validation import ValidationReport
 from assetforge.models.analysis_dto import report_from_dict
 from assetforge.models.build_dto import build_report_from_dict
 from assetforge.models.export_dto import export_report_from_dict
+from assetforge.models.geometry_report_dto import geometry_report_from_dict
 from assetforge.models.model_preview_dto import model_preview_report_from_dict
 from assetforge.models.optimization_dto import optimization_report_from_dict
+from assetforge.models.preprocess_dto import preprocess_report_from_dict
 from assetforge.models.real_optimization_preview_dto import real_preview_report_from_dict
+from assetforge.models.simplification_report_dto import simplification_report_from_dict
 from assetforge.models.validation_dto import validation_report_from_dict
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuilder
+from assetforge.services.geometry_report import GeometryReporter
 from assetforge.services.model_preview import ModelPreviewGenerator
+from assetforge.services.preprocess import AssetPreprocessor
 from assetforge.services.real_optimization_preview import RealOptimizationPreviewer
+from assetforge.services.simplification_report import SimplificationReporter
 from assetforge.services.vehicle_analysis import VehicleAnalyzer
 from assetforge.services.vehicle_export import VehicleExporter
 from assetforge.services.vehicle_optimization import VehicleOptimizer
@@ -37,6 +46,9 @@ class BlenderVehicleService(
     CitiesSkylinesBuilder,
     RealOptimizationPreviewer,
     ModelPreviewGenerator,
+    GeometryReporter,
+    SimplificationReporter,
+    AssetPreprocessor,
 ):
     """Production adapter for vehicle operations implemented in Blender."""
 
@@ -95,6 +107,23 @@ class BlenderVehicleService(
             ],
         )
         return optimization_report_from_dict(payload)
+
+    def preprocess_blend_file(
+        self,
+        blend_file: Path,
+        angle_degrees: float,
+    ) -> PreprocessReport:
+        script_path = Path(__file__).parent / "scripts" / "preprocess_blend.py"
+        payload = self._executor.run_script(
+            script_path,
+            [
+                "--blend-file",
+                str(blend_file),
+                "--angle-degrees",
+                str(angle_degrees),
+            ],
+        )
+        return preprocess_report_from_dict(payload)
 
     def export_fbx(
         self,
@@ -207,6 +236,7 @@ class BlenderVehicleService(
         profile: AssetProfile,
         target_triangle_count: int,
         output_directory: Path,
+        pipeline_stage: int = 1,
     ) -> RealOptimizationPreviewReport:
         script_path = Path(__file__).parent / "scripts" / "generate_real_optimization_preview.py"
         payload = self._executor.run_script(
@@ -230,6 +260,8 @@ class BlenderVehicleService(
                 str(profile.warning_triangle_count),
                 "--critical-triangles",
                 str(profile.critical_triangle_count),
+                "--pipeline-stage",
+                str(pipeline_stage),
             ],
         )
         return real_preview_report_from_dict(payload)
@@ -250,3 +282,40 @@ class BlenderVehicleService(
             ],
         )
         return model_preview_report_from_dict(payload)
+
+    def generate_geometry_report(
+        self,
+        source_file: Path,
+        output_directory: Path,
+    ) -> GeometryReport:
+        script_path = Path(__file__).parent / "scripts" / "generate_geometry_report.py"
+        payload = self._executor.run_script(
+            script_path,
+            [
+                "--source-file",
+                str(source_file),
+                "--output-directory",
+                str(output_directory),
+            ],
+        )
+        return geometry_report_from_dict(payload)
+
+    def generate_simplification_report(
+        self,
+        source_blend_file: Path,
+        optimized_blend_file: Path,
+        output_directory: Path,
+    ) -> SimplificationReport:
+        script_path = Path(__file__).parent / "scripts" / "generate_simplification_report.py"
+        payload = self._executor.run_script(
+            script_path,
+            [
+                "--source-blend-file",
+                str(source_blend_file),
+                "--optimized-blend-file",
+                str(optimized_blend_file),
+                "--output-directory",
+                str(output_directory),
+            ],
+        )
+        return simplification_report_from_dict(payload)

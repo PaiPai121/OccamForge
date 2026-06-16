@@ -67,8 +67,10 @@ assetforge
 
 The main screen is a guided workflow:
 
-- select a `.blend` file
+- select a `.blend` file for the full vehicle build workflow
+- select `.blend`, `.obj`, `.fbx`, `.glb`, or `.gltf` for Geometry Report analysis
 - inspect the model information and viewport preview
+- optionally run Safe Preprocess to clean low-risk coplanar geometry
 - optionally enable triangle optimization and choose a maximum triangle count
 - optionally generate one real optimization preview
 - apply the preview target
@@ -91,6 +93,53 @@ CLI real optimization preview:
 ```powershell
 assetforge-real-preview .\RhinoTank.blend --target-triangles 15000 --output .\previews --json .\previews\real-preview-report.json
 ```
+
+CLI safe preprocess:
+
+```powershell
+assetforge-preprocess .\RhinoTank.blend --angle-degrees 1.0 --json .\RhinoTank_preprocessed_report.json
+```
+
+Safe Preprocess creates `<name>_preprocessed.blend` and runs a conservative Limited Dissolve pass on the copy. It does not modify the original file. In the GUI, once Safe Preprocess succeeds, the next real preview or Cities Skylines build uses the preprocessed copy automatically.
+
+CLI geometry report:
+
+```powershell
+assetforge-geometry-report .\RhinoTank.blend --output .\geometry_reports --json .\geometry_reports\geometry-report.json
+```
+
+Geometry Report runs before optimization and does not modify, optimize, export, or build the model. It answers where the triangle budget is being spent for `.blend`, `.obj`, `.fbx`, `.glb`, and `.gltf` inputs.
+
+Geometry output is written to `geometry_reports/`:
+
+- `geometry_report.json`
+- `geometry_report.png`
+
+The heatmap colors mean:
+
+- blue: low triangle density
+- green: medium triangle density
+- yellow: high triangle density
+- red: extreme triangle density
+
+CLI simplification report:
+
+```powershell
+assetforge-simplification-report .\RhinoTank.blend --optimized-blend .\RhinoTank_optimized.blend --output .\simplification_reports
+```
+
+If `--optimized-blend` is omitted, AssetForge compares against `<source>_optimized.blend`. Simplification Analysis does not optimize or export; it compares the existing original and optimized files.
+
+Simplification output is written to `simplification_reports/`:
+
+- `simplification_report.json`
+- `simplification_heatmap.png`
+
+The simplification heatmap colors mean:
+
+- green: little simplification
+- yellow: medium simplification
+- red: heavy simplification
 
 CLI FBX export:
 
@@ -119,6 +168,12 @@ assetforge-build-cs .\RhinoTank.blend --json .\build-report.json
 ```
 
 By default, the build preserves the original mesh triangle count. To reduce triangles during build, enable `Optimize triangle count` in the GUI or pass `--optimize --target-triangles <count>` in the CLI.
+
+Recommended GUI flow:
+
+```text
+Select Model File -> Safe Preprocess -> optional Optimize triangle count -> Build Cities Skylines Asset
+```
 
 The build output is written to `build/`:
 

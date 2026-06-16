@@ -14,6 +14,12 @@ dist/
 build/
 previews/
 previews*/
+geometry_reports/
+simplification_reports/
+*_preprocessed.blend
+*_preprocessed*.json
+debug_desktop.png
+blender_test.blend
 AssetForge.spec
 *.egg-info/
 logs/

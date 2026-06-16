@@ -99,6 +99,8 @@ def _optimize_objects(
     target_triangles: int,
     minimum_ratio: float,
     max_iterations: int,
+    protected_vertices_by_object: dict[str, set[int]] | None = None,
+    target_vertices_by_object: dict[str, set[int]] | None = None,
 ) -> tuple[int, float, int, list[str]]:
     warnings: list[str] = []
     original_total = _count_scene_triangles(mesh_objects)
@@ -107,9 +109,23 @@ def _optimize_objects(
         return original_total, 1.0, 0, warnings
 
     modifiers: list[tuple[bpy.types.Object, bpy.types.Modifier]] = []
+    protected_vertices_by_object = protected_vertices_by_object or {}
+    target_vertices_by_object = target_vertices_by_object or {}
     for obj in decimate_objects:
         modifier = obj.modifiers.new(name="AssetForge_Decimate", type="DECIMATE")
         modifier.decimate_type = "COLLAPSE"
+        target_vertices = target_vertices_by_object.get(obj.name, set())
+        protected_vertices = protected_vertices_by_object.get(obj.name, set())
+        if target_vertices:
+            group = obj.vertex_groups.new(name="AssetForge_Candidate_Target")
+            group.add(list(target_vertices), 1.0, "ADD")
+            modifier.vertex_group = group.name
+        elif protected_vertices:
+            group = obj.vertex_groups.new(name="AssetForge_Protected")
+            group.add(list(protected_vertices), 1.0, "ADD")
+            modifier.vertex_group = group.name
+            if hasattr(modifier, "invert_vertex_group"):
+                modifier.invert_vertex_group = True
         modifiers.append((obj, modifier))
 
     low = minimum_ratio

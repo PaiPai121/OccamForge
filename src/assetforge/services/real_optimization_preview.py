@@ -17,6 +17,7 @@ class RealOptimizationPreviewer(ABC):
         profile: AssetProfile,
         target_triangle_count: int,
         output_directory: Path,
+        pipeline_stage: int = 1,
     ) -> RealOptimizationPreviewReport:
         raise NotImplementedError
 
@@ -38,6 +39,7 @@ class RealOptimizationPreviewService:
         profile_id: str = "cities_skylines_vehicle",
         target_triangle_count: int = 5000,
         output_directory: Path | None = None,
+        pipeline_stage: int = 1,
     ) -> RealOptimizationPreviewReport:
         if not blend_file.exists():
             raise FileNotFoundError(f"Blend file does not exist: {blend_file}")
@@ -45,6 +47,8 @@ class RealOptimizationPreviewService:
             raise ValueError(f"Expected a .blend file, got: {blend_file}")
         if target_triangle_count <= 0:
             raise ValueError("Target triangle count must be greater than zero.")
+        if pipeline_stage not in {1, 2, 3}:
+            raise ValueError("Optimization pipeline stage must be 1, 2, or 3.")
 
         profile = self._profile_registry.get(profile_id)
         preview_directory = output_directory or blend_file.parent / "previews"
@@ -53,4 +57,5 @@ class RealOptimizationPreviewService:
             profile,
             target_triangle_count,
             preview_directory,
+            pipeline_stage,
         )

@@ -8,21 +8,13 @@ from pathlib import Path
 from assetforge.app.composition import build_app_services
 from assetforge.core.config import AssetForgeConfig
 from assetforge.core.logging import configure_logging
-from assetforge.models.real_optimization_preview_dto import real_preview_report_to_dict
+from assetforge.models.geometry_report_dto import geometry_report_to_dict
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate a real optimization preview.")
-    parser.add_argument("blend_file", type=Path)
-    parser.add_argument(
-        "--target-triangles",
-        type=int,
-        required=True,
-        help="Maximum triangle count to preview.",
-    )
-    parser.add_argument("--output", type=Path, default=Path("previews"))
-    parser.add_argument("--profile", default="cities_skylines_vehicle")
-    parser.add_argument("--pipeline-stage", type=int, choices=(1, 2, 3), default=1)
+    parser = argparse.ArgumentParser(description="Generate a geometry density report.")
+    parser.add_argument("source_file", type=Path)
+    parser.add_argument("--output", type=Path, default=Path("geometry_reports"))
     parser.add_argument("--json", type=Path, help="Optional path for report JSON output.")
     return parser.parse_args()
 
@@ -33,18 +25,12 @@ def main() -> int:
     configure_logging(config.log_level)
     services = build_app_services(config)
     try:
-        report = services.real_optimization_preview.generate(
-            args.blend_file,
-            args.profile,
-            args.target_triangles,
-            args.output,
-            args.pipeline_stage,
-        )
+        report = services.geometry_report.generate(args.source_file, args.output)
     except Exception as exc:  # noqa: BLE001 - CLI should present clean operational errors.
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    payload = real_preview_report_to_dict(report)
+    payload = geometry_report_to_dict(report)
     text = json.dumps(payload, indent=2)
     if args.json:
         args.json.write_text(text, encoding="utf-8")

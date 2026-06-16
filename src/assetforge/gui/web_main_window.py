@@ -16,26 +16,52 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow
 
 from assetforge.models.analysis_dto import report_to_dict
 from assetforge.models.build_dto import build_report_to_dict
+from assetforge.models.geometry_report_dto import geometry_report_to_dict
 from assetforge.models.model_preview_dto import model_preview_report_to_dict
+from assetforge.models.preprocess_dto import preprocess_report_to_dict
 from assetforge.models.real_optimization_preview_dto import real_preview_report_to_dict
+from assetforge.models.simplification_report_dto import simplification_report_to_dict
 from assetforge.models.validation_dto import validation_report_to_dict
 from assetforge.gui.workers import (
     AnalysisWorker,
     CitiesSkylinesBuildWorker,
+    GeometryReportWorker,
     ModelPreviewWorker,
+    PreprocessWorker,
     RealOptimizationPreviewWorker,
+    SimplificationReportWorker,
     ValidationWorker,
 )
 from assetforge.services.blender_configuration import BlenderConfigurationService
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
+from assetforge.services.geometry_report import GeometryReportService
 from assetforge.services.model_preview import ModelPreviewService
+from assetforge.services.preprocess import PreprocessService
 from assetforge.services.real_optimization_preview import RealOptimizationPreviewService
+from assetforge.services.simplification_report import SimplificationReportService
 from assetforge.services.vehicle_analysis import VehicleAnalysisService
 from assetforge.services.vehicle_validation import VehicleValidationService
 
 
 def _json(payload: dict[str, Any]) -> str:
     return json.dumps(payload)
+
+
+def _file_url(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    stat = path.stat()
+    return f"{path.resolve().as_uri()}?v={stat.st_mtime_ns}-{stat.st_size}"
+
+
+def _read_json_file(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 class AssetForgeBridge(QObject):
@@ -48,41 +74,53 @@ class AssetForgeBridge(QObject):
         analysis_service: VehicleAnalysisService,
         validation_service: VehicleValidationService,
         build_service: CitiesSkylinesBuildService,
+        preprocess_service: PreprocessService,
         real_preview_service: RealOptimizationPreviewService,
         model_preview_service: ModelPreviewService,
+        geometry_report_service: GeometryReportService,
+        simplification_report_service: SimplificationReportService,
         blender_configuration: BlenderConfigurationService,
     ) -> None:
         super().__init__()
         self._analysis_service = analysis_service
         self._validation_service = validation_service
         self._build_service = build_service
+        self._preprocess_service = preprocess_service
         self._real_preview_service = real_preview_service
         self._model_preview_service = model_preview_service
+        self._geometry_report_service = geometry_report_service
+        self._simplification_report_service = simplification_report_service
         self._blender_configuration = blender_configuration
         self._thread_pool = QThreadPool.globalInstance()
         self._active_workers: list[object] = []
         self._selected_file: Path | None = None
         self._current_preview_target: int | None = None
+        self._current_preview_blend_file: Path | None = None
+        self._preprocessed_file: Path | None = None
         self._busy = False
         self._analysis_generation = 0
         self._source_preview_generation = 0
         self._settings = QSettings("AssetForge", "AssetForge")
         output_folder, output_source = self._default_output_folder()
+        target_triangles = self._saved_target_triangles()
         self.uiDispatch.connect(
             self._execute_ui_callback,
             Qt.ConnectionType.QueuedConnection,
         )
         self._state: dict[str, Any] = {
             "selectedFile": None,
-            "targetTriangles": 15000,
-            "optimizeEnabled": False,
+            "targetTriangles": target_triangles,
+            "optimizeEnabled": True,
             "busy": False,
             "sourcePreviewBusy": False,
             "status": "Choose a Blender vehicle file",
             "analysis": None,
             "validation": None,
             "sourcePreview": None,
+            "preprocess": None,
             "realPreview": None,
+            "geometryReport": None,
+            "simplificationReport": None,
             "build": None,
             "currentPreviewTarget": None,
             "outputFolder": str(output_folder) if output_folder else None,
@@ -124,13 +162,32 @@ class AssetForgeBridge(QObject):
         self._debug_log(f"backend: loadPreviewMesh returning {len(text):,} chars")
         return text
 
+    @Slot(int)
+    def setTargetTriangles(self, target_triangles: int) -> None:
+        if target_triangles <= 0:
+            return
+        target_triangles = int(target_triangles)
+        previous_target = int(self._state.get("targetTriangles") or 0)
+        if previous_target == target_triangles:
+            return
+        self._settings.setValue("targetTriangles", target_triangles)
+        self._state["targetTriangles"] = target_triangles
+        if self._current_preview_target is not None and self._current_preview_target != target_triangles:
+            self._current_preview_target = None
+            self._current_preview_blend_file = None
+            self._state["currentPreviewTarget"] = None
+            self._state["realPreview"] = None
+            self._state["simplificationReport"] = None
+            self._state["status"] = "Target changed. Review Stage 1 before optimizing again."
+        self._emit_state()
+
     @Slot(result=str)
     def selectBlendFile(self) -> str:
         path, _ = QFileDialog.getOpenFileName(
             None,
-            "Select Blender File",
+            "Select Model File",
             self._last_directory("lastBlendDirectory"),
-            "Blender Files (*.blend)",
+            "Model Files (*.blend *.obj *.fbx *.glb *.gltf)",
         )
         if path:
             self.openBlendFile(path)
@@ -138,11 +195,12 @@ class AssetForgeBridge(QObject):
 
     @Slot(str, result=str)
     def openBlendFile(self, path: str) -> str:
-        blend_file = Path(path)
-        if not blend_file.exists() or blend_file.suffix.lower() != ".blend":
-            self._fail(f"Expected an existing .blend file, got: {blend_file}")
+        model_file = Path(path)
+        supported = {".blend", ".obj", ".fbx", ".glb", ".gltf"}
+        if not model_file.exists() or model_file.suffix.lower() not in supported:
+            self._fail(f"Expected an existing model file, got: {model_file}")
             return _json(self._state)
-        self._selected_file = blend_file
+        self._selected_file = model_file
         self._settings.setValue("lastBlendDirectory", str(self._selected_file.parent))
         self._state.update(
             {
@@ -151,22 +209,30 @@ class AssetForgeBridge(QObject):
                 "validation": None,
                 "sourcePreview": None,
                 "sourcePreviewBusy": False,
+                "preprocess": None,
                 "realPreview": None,
+                "geometryReport": None,
+                "simplificationReport": None,
                 "build": None,
                 "currentPreviewTarget": None,
-                "status": "Loading original model preview...",
+                "status": "Loading original model preview..."
+                if self._selected_file.suffix.lower() == ".blend"
+                else "Model selected. Current model analysis is available.",
             }
         )
         self._current_preview_target = None
+        self._current_preview_blend_file = None
+        self._preprocessed_file = None
         self._emit_state()
         self.logAdded.emit(f"Selected file: {self._selected_file}")
         self._debug_log(f"backend: selected file {self._selected_file}")
-        self._analysis_generation += 1
-        generation = self._analysis_generation
-        QTimer.singleShot(
-            0,
-            lambda: self._auto_analyze_selected_file(generation),
-        )
+        if self._selected_file.suffix.lower() == ".blend":
+            self._analysis_generation += 1
+            generation = self._analysis_generation
+            QTimer.singleShot(
+                0,
+                lambda: self._auto_analyze_selected_file(generation),
+            )
         return _json(self._state)
 
     @Slot(result=str)
@@ -211,8 +277,26 @@ class AssetForgeBridge(QObject):
         if not self._selected_file:
             self.logAdded.emit("Select a .blend file before analyzing.")
             return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Model structure analysis currently requires a .blend file.")
+            return
         self._analysis_generation += 1
         self._begin_analysis("Analyzing vehicle structure...", "Analysis started.")
+
+    @Slot()
+    def analyzePipelineFile(self) -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a .blend file before refreshing the preview.")
+            return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Pipeline preview currently requires a .blend file.")
+            return
+        self._analysis_generation += 1
+        self._begin_analysis(
+            "Updating preview from cleaned model...",
+            "Refreshing preview from the current pipeline model.",
+            self._pipeline_blend_file(),
+        )
 
     def _auto_analyze_selected_file(self, generation: int) -> None:
         if generation != self._analysis_generation:
@@ -222,13 +306,19 @@ class AssetForgeBridge(QObject):
             "Opening Blender in the background to read the original model.",
         )
 
-    def _begin_analysis(self, status: str, started_log: str) -> None:
-        if not self._selected_file:
+    def _begin_analysis(
+        self,
+        status: str,
+        started_log: str,
+        blend_file: Path | None = None,
+    ) -> None:
+        target_file = blend_file or self._selected_file
+        if not target_file:
             return
         if self._start_busy(status):
             return
-        self._debug_log(f"backend: analysis worker queued for {self._selected_file}")
-        worker = AnalysisWorker(self._analysis_service, self._selected_file)
+        self._debug_log(f"backend: analysis worker queued for {target_file}")
+        worker = AnalysisWorker(self._analysis_service, target_file)
         worker.signals.started.connect(
             lambda: self._run_on_ui(
                 lambda: (
@@ -249,6 +339,9 @@ class AssetForgeBridge(QObject):
     def renderSourcePreview(self) -> None:
         if not self._selected_file:
             self.logAdded.emit("Select a .blend file before rendering a source preview.")
+            return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Viewport preview currently requires a .blend file.")
             return
         self._source_preview_generation += 1
         generation = self._source_preview_generation
@@ -277,26 +370,35 @@ class AssetForgeBridge(QObject):
             lambda: self._source_preview_timeout(generation),
         )
 
-    @Slot(int)
-    def generateRealPreview(self, target_triangles: int) -> None:
+    @Slot(int, int)
+    def generateRealPreview(self, target_triangles: int, pipeline_stage: int = 1) -> None:
         if not self._selected_file:
             self.logAdded.emit("Select a .blend file before generating a preview.")
+            return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Optimization preview currently requires a .blend file.")
             return
         if target_triangles <= 0:
             self.logAdded.emit("Target triangles must be greater than zero.")
             return
+        if pipeline_stage not in {1, 2, 3}:
+            self.logAdded.emit("Optimization pipeline stage must be Stage 1, Stage 2, or Stage 3.")
+            return
         if self._start_busy("Generating real optimization preview..."):
             return
         self._state["targetTriangles"] = target_triangles
+        self._settings.setValue("targetTriangles", target_triangles)
         self._state["realPreview"] = None
         self._state["currentPreviewTarget"] = None
         self._current_preview_target = None
+        self._current_preview_blend_file = None
         worker = RealOptimizationPreviewWorker(
             self._real_preview_service,
-            self._selected_file,
+            self._pipeline_blend_file(),
             "cities_skylines_vehicle",
             target_triangles,
             self._selected_file.parent / "previews",
+            pipeline_stage,
         )
         worker.signals.started.connect(
             lambda: self._run_on_ui(lambda: self.logAdded.emit("Real preview started."))
@@ -313,9 +415,31 @@ class AssetForgeBridge(QObject):
         if self._current_preview_target is None:
             return
         self._state["targetTriangles"] = self._current_preview_target
+        self._settings.setValue("targetTriangles", self._current_preview_target)
         self._state["optimizeEnabled"] = True
         self._state["status"] = f"Selected {self._current_preview_target:,} tris as build target"
         self._emit_state()
+
+    @Slot()
+    def preprocess(self) -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a .blend file before preprocessing.")
+            return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Safe preprocess currently requires a .blend file.")
+            return
+        if self._start_busy("Running safe preprocess..."):
+            return
+        worker = PreprocessWorker(self._preprocess_service, self._selected_file, 1.0)
+        worker.signals.started.connect(
+            lambda: self._run_on_ui(lambda: self.logAdded.emit("Safe preprocess started."))
+        )
+        worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
+        worker.signals.finished.connect(
+            lambda report: self._run_on_ui(lambda: self._preprocess_finished(report))
+        )
+        worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
+        self._start_worker(worker)
 
     @Slot(bool)
     def setOptimizeEnabled(self, enabled: bool) -> None:
@@ -323,7 +447,12 @@ class AssetForgeBridge(QObject):
 
     @Slot()
     def validate(self) -> None:
-        if not self._selected_file or self._start_busy("Validating asset readiness..."):
+        if not self._selected_file:
+            return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Validation currently requires a .blend file.")
+            return
+        if self._start_busy("Validating asset readiness..."):
             return
         worker = ValidationWorker(
             self._validation_service,
@@ -340,23 +469,97 @@ class AssetForgeBridge(QObject):
         worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
         self._start_worker(worker)
 
+    @Slot()
+    def generateGeometryReport(self) -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a model file before generating a geometry report.")
+            return
+        if self._start_busy("Generating geometry report..."):
+            return
+        self._state["realPreview"] = None
+        self._state["currentPreviewTarget"] = None
+        self._current_preview_target = None
+        self._current_preview_blend_file = None
+        source_file = self._pipeline_blend_file()
+        worker = GeometryReportWorker(
+            self._geometry_report_service,
+            source_file,
+            self._selected_file.parent / "geometry_reports",
+        )
+        worker.signals.started.connect(
+            lambda: self._run_on_ui(
+                lambda: self.logAdded.emit(f"Geometry report started for {source_file.name}.")
+            )
+        )
+        worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
+        worker.signals.finished.connect(
+            lambda report: self._run_on_ui(lambda: self._geometry_report_finished(report))
+        )
+        worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
+        self._start_worker(worker)
+
+    @Slot()
+    def generateSimplificationReport(self) -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a .blend file before generating a simplification report.")
+            return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Simplification analysis currently requires a .blend file.")
+            return
+        optimized_blend_file = self._current_preview_blend_file
+        if optimized_blend_file is None or not optimized_blend_file.exists():
+            self.logAdded.emit("Generate a triangle reduction preview before comparing reduction.")
+            self._state["status"] = "Generate a reduction preview before comparing"
+            self._emit_state()
+            return
+        if self._start_busy("Generating simplification analysis..."):
+            return
+        worker = SimplificationReportWorker(
+            self._simplification_report_service,
+            self._pipeline_blend_file(),
+            optimized_blend_file,
+            self._selected_file.parent / "simplification_reports",
+        )
+        worker.signals.started.connect(
+            lambda: self._run_on_ui(
+                lambda: self.logAdded.emit(
+                    f"Simplification analysis started for {optimized_blend_file.name}."
+                )
+            )
+        )
+        worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
+        worker.signals.finished.connect(
+            lambda report: self._run_on_ui(lambda: self._simplification_report_finished(report))
+        )
+        worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
+        self._start_worker(worker)
+
     @Slot(int, bool)
     def buildCitiesSkylinesAsset(self, target_triangles: int, optimize: bool) -> None:
         if not self._selected_file:
             self.logAdded.emit("Select a .blend file before building.")
             return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Cities Skylines build currently requires a .blend file.")
+            return
         if target_triangles <= 0:
             self.logAdded.emit("Target triangles must be greater than zero.")
             return
         self._state["targetTriangles"] = target_triangles
+        self._settings.setValue("targetTriangles", target_triangles)
         self._state["optimizeEnabled"] = optimize
         if self._start_busy("Building Cities Skylines package..."):
             return
+        build_source_file = (
+            self._current_preview_blend_file
+            if optimize and self._current_preview_blend_file is not None and self._current_preview_blend_file.exists()
+            else self._pipeline_blend_file()
+        )
         worker = CitiesSkylinesBuildWorker(
             self._build_service,
-            self._selected_file,
+            build_source_file,
             self._current_output_folder(),
-            optimize,
+            False if build_source_file == self._current_preview_blend_file else optimize,
             target_triangles,
         )
         worker.signals.started.connect(
@@ -415,7 +618,7 @@ class AssetForgeBridge(QObject):
     def _source_preview_finished(self, report: object) -> None:
         payload = model_preview_report_to_dict(report)
         image_path = Path(payload["preview_image_path"])
-        payload["preview_image_url"] = image_path.resolve().as_uri() if image_path.exists() else None
+        payload["preview_image_url"] = _file_url(image_path)
         self._state["sourcePreview"] = payload
         self._state["sourcePreviewBusy"] = False
         self._state["status"] = (
@@ -442,13 +645,20 @@ class AssetForgeBridge(QObject):
 
     def _real_preview_finished(self, report: object) -> None:
         payload = real_preview_report_to_dict(report)
+        output_directory = Path(payload["output_directory"])
         for item in payload["items"]:
             image_path = Path(item["preview_image_path"])
-            item["preview_image_url"] = image_path.resolve().as_uri() if image_path.exists() else None
+            item["preview_image_url"] = _file_url(image_path)
+            advanced_ran = any(
+                str(line).startswith("Stage 2 ") or str(line).startswith("Stage 3 ")
+                for line in item.get("warnings", [])
+            )
+            item["stage_debug"] = self._stage_debug_items(output_directory, image_path) if advanced_ran else []
         self._state["realPreview"] = payload
         if payload["items"] and not payload["items"][0]["errors"]:
             self._current_preview_target = int(payload["items"][0]["target_triangles"])
             self._state["currentPreviewTarget"] = self._current_preview_target
+            self._current_preview_blend_file = Path(payload["items"][0]["preview_blend_path"])
         self._finish_busy("Real preview complete" if not payload["errors"] else "Real preview issues found")
         if payload["items"]:
             item = payload["items"][0]
@@ -457,14 +667,130 @@ class AssetForgeBridge(QObject):
                 f"{item['actual_triangles']:,}, reduction {item['reduction_percent']:.2f}%"
             )
 
+    def _stage_debug_items(self, output_directory: Path, final_preview_image: Path) -> list[dict[str, Any]]:
+        stage3_definition = (
+            "3",
+            "Detail Suppression",
+            output_directory / "stage_3_model_preview.png",
+            output_directory / "stage_3_report.json",
+        )
+        final_definition = (
+            "Final",
+            "Final Preview",
+            final_preview_image,
+            None,
+        )
+        stage2_definitions = [
+            (
+                "2A",
+                "Input: Protection Expansion",
+                output_directory / "stage_2a_protection_map.png",
+                output_directory / "stage_2a_protection_report.json",
+            ),
+            (
+                "2B",
+                "Input: Detail Candidates",
+                output_directory / "stage_2b_deleted_features_map.png",
+                output_directory / "stage_2b_deleted_features_report.json",
+            ),
+            (
+                "2C",
+                "Input: Controlled Reduce",
+                output_directory / "stage_2c_model_preview.png",
+                output_directory / "stage_2c_bucket_report.json",
+            ),
+            (
+                "2C Heatmap",
+                "Input: Reduction Buckets",
+                output_directory / "stage_2c_bucket_heatmap.png",
+                output_directory / "stage_2c_bucket_report.json",
+            ),
+            (
+                "2D",
+                "Input: Local Fallback",
+                output_directory / "stage_2d_model_preview.png",
+                output_directory / "stage_2d_report.json",
+            ),
+        ]
+        definitions = (
+            [stage3_definition, final_definition, *stage2_definitions]
+            if (output_directory / "stage_3_report.json").exists()
+            else [*stage2_definitions, final_definition]
+        )
+        items: list[dict[str, Any]] = []
+        for stage_id, title, image_path, report_path in definitions:
+            report = _read_json_file(report_path)
+            if not image_path.exists() and report is None:
+                continue
+            items.append(
+                {
+                    "stage_id": stage_id,
+                    "title": title,
+                    "image_path": str(image_path) if image_path.exists() else None,
+                    "image_url": _file_url(image_path),
+                    "report_path": str(report_path) if report_path and report_path.exists() else None,
+                    "report": report,
+                }
+            )
+        return items
+
     def _validation_finished(self, report: object) -> None:
         payload = validation_report_to_dict(report)
         self._state["validation"] = payload
         self._finish_busy(f"Validation complete: {payload['rating']}")
         self.logAdded.emit(f"Validation score: {payload['score']} ({payload['rating']})")
 
+    def _geometry_report_finished(self, report: object) -> None:
+        payload = geometry_report_to_dict(report)
+        image_path = Path(payload["heatmap_image_path"])
+        payload["heatmap_image_url"] = _file_url(image_path)
+        self._state["geometryReport"] = payload
+        status = "Geometry report complete" if not payload["errors"] else "Geometry report found issues"
+        self._finish_busy(status)
+        self.logAdded.emit(
+            "Geometry report: "
+            f"{payload['overall']['triangles']:,} triangles, "
+            f"{len(payload['dense_regions'])} dense regions"
+        )
+
+    def _preprocess_finished(self, report: object) -> None:
+        payload = preprocess_report_to_dict(report)
+        self._state["preprocess"] = payload
+        if not payload["errors"]:
+            self._preprocessed_file = Path(payload["preprocessed_blend_file"])
+        status = "Safe preprocess complete" if not payload["errors"] else "Safe preprocess found issues"
+        self._finish_busy(status)
+        self.logAdded.emit(
+            "Preprocess: "
+            f"{payload['original_triangle_count']:,} -> "
+            f"{payload['preprocessed_triangle_count']:,} tris "
+            f"({payload['reduction_percentage']:.2f}% removed)"
+        )
+
+    def _simplification_report_finished(self, report: object) -> None:
+        payload = simplification_report_to_dict(report)
+        image_path = Path(payload["heatmap_image_path"])
+        payload["heatmap_image_url"] = _file_url(image_path)
+        self._state["simplificationReport"] = payload
+        status = (
+            "Simplification analysis complete"
+            if not payload["errors"]
+            else "Simplification analysis found issues"
+        )
+        self._finish_busy(status)
+        self.logAdded.emit(
+            "Simplification: "
+            f"{payload['removed_triangle_count']:,} triangles removed "
+            f"({payload['reduction_percentage']:.2f}%)"
+        )
+
     def _build_finished(self, report: object) -> None:
         payload = build_report_to_dict(report)
+        if (
+            self._current_preview_blend_file is not None
+            and Path(payload["source_blend_file"]) == self._current_preview_blend_file
+        ):
+            payload["optimized"] = True
         self._state["build"] = payload
         self._finish_busy("Build complete" if not payload["errors"] else "Build issues found")
         self.logAdded.emit(f"Build folder: {payload['build_folder']}")
@@ -473,6 +799,21 @@ class AssetForgeBridge(QObject):
         )
         if payload.get("deploy_folder"):
             self.logAdded.emit(f"Cities Skylines import files: {payload['deploy_folder']}")
+
+    def _pipeline_blend_file(self) -> Path:
+        if self._preprocessed_file is not None and self._preprocessed_file.exists():
+            return self._preprocessed_file
+        if self._selected_file is None:
+            raise FileNotFoundError("No selected blend file.")
+        return self._selected_file
+
+    def _saved_target_triangles(self) -> int:
+        value = self._settings.value("targetTriangles", 3000)
+        try:
+            target_triangles = int(value)
+        except (TypeError, ValueError):
+            return 3000
+        return max(100, target_triangles)
 
     def _progress(self, message: str) -> None:
         self._state["status"] = message
@@ -519,7 +860,10 @@ class AssetForgeBridge(QObject):
     @Slot(object)
     def _execute_ui_callback(self, callback: object) -> None:
         if callable(callback):
-            callback()
+            try:
+                callback()
+            except Exception as exc:  # noqa: BLE001 - keep GUI recoverable from callback bugs.
+                self._fail(f"GUI callback failed: {exc}")
 
     def _debug_log(self, message: str) -> None:
         base_dir = self._selected_file.parent if self._selected_file else Path.cwd()
@@ -575,8 +919,11 @@ class WebMainWindow(QMainWindow):
         analysis_service: VehicleAnalysisService,
         validation_service: VehicleValidationService,
         build_service: CitiesSkylinesBuildService,
+        preprocess_service: PreprocessService,
         real_preview_service: RealOptimizationPreviewService,
         model_preview_service: ModelPreviewService,
+        geometry_report_service: GeometryReportService,
+        simplification_report_service: SimplificationReportService,
         blender_configuration: BlenderConfigurationService,
     ) -> None:
         super().__init__()
@@ -591,8 +938,11 @@ class WebMainWindow(QMainWindow):
             analysis_service,
             validation_service,
             build_service,
+            preprocess_service,
             real_preview_service,
             model_preview_service,
+            geometry_report_service,
+            simplification_report_service,
             blender_configuration,
         )
         self._channel.registerObject("assetForge", self._bridge)

@@ -41,6 +41,9 @@ def test_analysis_worker_updates_web_state_on_ui_thread(qtbot, tmp_path: Path) -
         UnusedService(),
         UnusedService(),
         UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
     )
     bridge._selected_file = blend_file
 
@@ -73,6 +76,41 @@ def test_load_preview_mesh_returns_mesh_text(tmp_path: Path) -> None:
         UnusedService(),
         UnusedService(),
         UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
     )
 
     assert bridge.loadPreviewMesh(str(preview_mesh)) == mesh_text
+
+
+def test_stage_debug_allows_final_preview_without_report(tmp_path: Path) -> None:
+    preview_mesh = tmp_path / "vehicle_viewport.obj"
+    bridge = AssetForgeBridge(
+        FakeAnalysisService(preview_mesh),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
+    )
+    output_directory = tmp_path / "previews"
+    output_directory.mkdir()
+    final_preview = output_directory / "preview_3000.png"
+    final_preview.write_bytes(b"fake png")
+    (output_directory / "stage_2a_protection_map.png").write_bytes(b"fake png")
+    (output_directory / "stage_2a_protection_report.json").write_text(
+        json.dumps({"stage": "2A_structural_protection_expansion"}),
+        encoding="utf-8",
+    )
+
+    items = bridge._stage_debug_items(output_directory, final_preview)
+
+    assert [item["stage_id"] for item in items] == ["2A", "Final"]
+    final_item = items[-1]
+    assert final_item["report_path"] is None
+    assert final_item["report"] is None
+    assert final_item["image_url"].startswith("file:///")

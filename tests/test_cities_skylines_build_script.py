@@ -3,7 +3,7 @@ import sys
 import types
 
 sys.modules.setdefault("bpy", types.SimpleNamespace())
-from assetforge.blender.scripts.build_cities_skylines_asset import _copy_deploy_pair
+from assetforge.blender.scripts.build_cities_skylines_asset import _asset_stem, _copy_deploy_pair
 
 
 def test_copy_deploy_pair_uses_matching_asset_base(tmp_path: Path) -> None:
@@ -28,3 +28,9 @@ def test_copy_deploy_pair_uses_matching_asset_base(tmp_path: Path) -> None:
     assert deployed_png.name == "tank_cs_002_d.png"
     assert deployed_fbx.read_bytes() == b"fbx"
     assert deployed_png.read_bytes() == b"png"
+
+
+def test_asset_stem_strips_pipeline_suffixes() -> None:
+    assert _asset_stem(Path("rhino_tank_preprocessed.blend")) == "rhino_tank"
+    assert _asset_stem(Path("rhino_tank_optimized.blend")) == "rhino_tank"
+    assert _asset_stem(Path("rhino_tank.blend")) == "rhino_tank"

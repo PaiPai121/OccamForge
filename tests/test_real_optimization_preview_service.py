@@ -12,7 +12,7 @@ from assetforge.services.real_optimization_preview import (
 
 class FakePreviewer(RealOptimizationPreviewer):
     def __init__(self) -> None:
-        self.calls: list[tuple[Path, AssetProfile, int, Path]] = []
+        self.calls: list[tuple[Path, AssetProfile, int, Path, int]] = []
 
     def generate_real_optimization_preview(
         self,
@@ -20,8 +20,9 @@ class FakePreviewer(RealOptimizationPreviewer):
         profile: AssetProfile,
         target_triangle_count: int,
         output_directory: Path,
+        pipeline_stage: int = 1,
     ) -> RealOptimizationPreviewReport:
-        self.calls.append((blend_file, profile, target_triangle_count, output_directory))
+        self.calls.append((blend_file, profile, target_triangle_count, output_directory, pipeline_stage))
         return RealOptimizationPreviewReport(
             source_blend_file=blend_file,
             output_directory=output_directory,
@@ -45,6 +46,7 @@ def test_real_preview_service_uses_target_and_default_output(tmp_path: Path) -> 
     assert report.output_directory == tmp_path / "previews"
     assert previewer.calls[0][2] == 15000
     assert previewer.calls[0][1].profile_id == "cities_skylines_vehicle"
+    assert previewer.calls[0][4] == 1
 
 
 def test_real_preview_service_rejects_invalid_target(tmp_path: Path) -> None:

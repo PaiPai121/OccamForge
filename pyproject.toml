@@ -24,6 +24,9 @@ assetforge-export-fbx-strict = "assetforge.app.export_strict_cli:main"
 assetforge-validate = "assetforge.app.validate_cli:main"
 assetforge-build-cs = "assetforge.app.build_cs_cli:main"
 assetforge-real-preview = "assetforge.app.real_preview_cli:main"
+assetforge-preprocess = "assetforge.app.preprocess_cli:main"
+assetforge-geometry-report = "assetforge.app.geometry_report_cli:main"
+assetforge-simplification-report = "assetforge.app.simplification_report_cli:main"
 
 [build-system]
 requires = ["hatchling"]
