@@ -44,6 +44,9 @@ def test_analysis_worker_updates_web_state_on_ui_thread(qtbot, tmp_path: Path) -
         UnusedService(),
         UnusedService(),
         UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
     )
     bridge._selected_file = blend_file
 
@@ -79,6 +82,9 @@ def test_load_preview_mesh_returns_mesh_text(tmp_path: Path) -> None:
         UnusedService(),
         UnusedService(),
         UnusedService(),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
     )
 
     assert bridge.loadPreviewMesh(str(preview_mesh)) == mesh_text
@@ -88,6 +94,9 @@ def test_stage_debug_allows_final_preview_without_report(tmp_path: Path) -> None
     preview_mesh = tmp_path / "vehicle_viewport.obj"
     bridge = AssetForgeBridge(
         FakeAnalysisService(preview_mesh),
+        UnusedService(),
+        UnusedService(),
+        UnusedService(),
         UnusedService(),
         UnusedService(),
         UnusedService(),

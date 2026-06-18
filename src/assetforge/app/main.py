@@ -27,6 +27,9 @@ def main() -> int:
         services.model_preview,
         services.geometry_report,
         services.simplification_report,
+        services.qem_heatmap,
+        services.scale_analysis,
+        services.afcost_candidates,
         services.blender_configuration,
     )
     window.resize(1280, 860)

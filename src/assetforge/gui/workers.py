@@ -15,12 +15,15 @@ from assetforge.domain.preprocess import PreprocessReport
 from assetforge.domain.real_optimization_preview import RealOptimizationPreviewReport
 from assetforge.domain.simplification_report import SimplificationReport
 from assetforge.domain.validation import ValidationReport
+from assetforge.services.afcost_candidates import AFCostCandidateService
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
 from assetforge.services.geometry_report import GeometryReportService
 from assetforge.services.model_preview import ModelPreviewService
 from assetforge.services.optimization_preview import OptimizationPreviewService
 from assetforge.services.preprocess import PreprocessService
+from assetforge.services.qem_heatmap import QemHeatmapService
 from assetforge.services.real_optimization_preview import RealOptimizationPreviewService
+from assetforge.services.scale_analysis import ScaleAnalysisService
 from assetforge.services.simplification_report import SimplificationReportService
 from assetforge.services.vehicle_analysis import VehicleAnalysisService
 from assetforge.services.vehicle_export import VehicleExportService
@@ -329,6 +332,111 @@ class SimplificationReportWorker(QRunnable):
             report: SimplificationReport = self._simplification_service.generate(
                 self._source_blend_file,
                 self._optimized_blend_file,
+                self._output_directory,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class QemHeatmapWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class QemHeatmapWorker(QRunnable):
+    def __init__(
+        self,
+        qem_heatmap_service: QemHeatmapService,
+        source_file: Path,
+        output_directory: Path,
+    ) -> None:
+        super().__init__()
+        self._qem_heatmap_service = qem_heatmap_service
+        self._source_file = source_file
+        self._output_directory = output_directory
+        self.signals = QemHeatmapWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Computing QEM edge collapse costs...")
+            report = self._qem_heatmap_service.generate(
+                self._source_file,
+                self._output_directory,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class ScaleAnalysisWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class ScaleAnalysisWorker(QRunnable):
+    def __init__(
+        self,
+        scale_analysis_service: ScaleAnalysisService,
+        source_file: Path,
+        output_directory: Path,
+    ) -> None:
+        super().__init__()
+        self._scale_analysis_service = scale_analysis_service
+        self._source_file = source_file
+        self._output_directory = output_directory
+        self.signals = ScaleAnalysisWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Computing multi-scale visual importance...")
+            report = self._scale_analysis_service.generate(
+                self._source_file,
+                self._output_directory,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class AFCostCandidateWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class AFCostCandidateWorker(QRunnable):
+    def __init__(
+        self,
+        afcost_candidate_service: AFCostCandidateService,
+        source_file: Path,
+        output_directory: Path,
+    ) -> None:
+        super().__init__()
+        self._afcost_candidate_service = afcost_candidate_service
+        self._source_file = source_file
+        self._output_directory = output_directory
+        self.signals = AFCostCandidateWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Computing AF cost combination candidates...")
+            report = self._afcost_candidate_service.generate(
+                self._source_file,
                 self._output_directory,
             )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.

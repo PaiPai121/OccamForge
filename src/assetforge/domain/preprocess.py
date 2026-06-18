@@ -14,6 +14,9 @@ class PreprocessReport:
     removed_triangle_count: int
     reduction_percentage: float
     limited_dissolve_angle_degrees: float
+    original_object_count: int = 0
+    preprocessed_object_count: int = 0
+    joined_mesh_objects: bool = False
     warnings: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
 

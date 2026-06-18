@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import html
 import json
 import os
 from datetime import datetime
@@ -23,21 +25,27 @@ from assetforge.models.real_optimization_preview_dto import real_preview_report_
 from assetforge.models.simplification_report_dto import simplification_report_to_dict
 from assetforge.models.validation_dto import validation_report_to_dict
 from assetforge.gui.workers import (
+    AFCostCandidateWorker,
     AnalysisWorker,
     CitiesSkylinesBuildWorker,
     GeometryReportWorker,
     ModelPreviewWorker,
     PreprocessWorker,
+    QemHeatmapWorker,
     RealOptimizationPreviewWorker,
+    ScaleAnalysisWorker,
     SimplificationReportWorker,
     ValidationWorker,
 )
+from assetforge.services.afcost_candidates import AFCostCandidateService
 from assetforge.services.blender_configuration import BlenderConfigurationService
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
 from assetforge.services.geometry_report import GeometryReportService
 from assetforge.services.model_preview import ModelPreviewService
 from assetforge.services.preprocess import PreprocessService
+from assetforge.services.qem_heatmap import QemHeatmapService
 from assetforge.services.real_optimization_preview import RealOptimizationPreviewService
+from assetforge.services.scale_analysis import ScaleAnalysisService
 from assetforge.services.simplification_report import SimplificationReportService
 from assetforge.services.vehicle_analysis import VehicleAnalysisService
 from assetforge.services.vehicle_validation import VehicleValidationService
@@ -64,6 +72,11 @@ def _read_json_file(path: Path | None) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _image_data_uri(path: Path) -> str:
+    data = path.read_bytes()
+    return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+
+
 class AssetForgeBridge(QObject):
     stateChanged = Signal(str)
     logAdded = Signal(str)
@@ -79,6 +92,9 @@ class AssetForgeBridge(QObject):
         model_preview_service: ModelPreviewService,
         geometry_report_service: GeometryReportService,
         simplification_report_service: SimplificationReportService,
+        qem_heatmap_service: QemHeatmapService,
+        scale_analysis_service: ScaleAnalysisService,
+        afcost_candidate_service: AFCostCandidateService,
         blender_configuration: BlenderConfigurationService,
     ) -> None:
         super().__init__()
@@ -90,6 +106,9 @@ class AssetForgeBridge(QObject):
         self._model_preview_service = model_preview_service
         self._geometry_report_service = geometry_report_service
         self._simplification_report_service = simplification_report_service
+        self._qem_heatmap_service = qem_heatmap_service
+        self._scale_analysis_service = scale_analysis_service
+        self._afcost_candidate_service = afcost_candidate_service
         self._blender_configuration = blender_configuration
         self._thread_pool = QThreadPool.globalInstance()
         self._active_workers: list[object] = []
@@ -121,6 +140,9 @@ class AssetForgeBridge(QObject):
             "realPreview": None,
             "geometryReport": None,
             "simplificationReport": None,
+            "qemHeatmap": None,
+            "scaleAnalysis": None,
+            "afcostCandidates": None,
             "build": None,
             "currentPreviewTarget": None,
             "outputFolder": str(output_folder) if output_folder else None,
@@ -161,6 +183,186 @@ class AssetForgeBridge(QObject):
             return ""
         self._debug_log(f"backend: loadPreviewMesh returning {len(text):,} chars")
         return text
+
+    @Slot(bool, result=str)
+    def exportHeatmapComparison(self, inverted: bool) -> str:
+        qem = self._state.get("qemHeatmap") or {}
+        scale = self._state.get("scaleAnalysis") or {}
+        if not qem or not scale:
+            return _json({"errors": ["Generate Heatmap Diagnostics before exporting."]})
+
+        mode = "inverse" if inverted else "normal"
+        definitions = [
+            (
+                "Classic QEM cost",
+                qem.get("heatmap_inverse_png" if inverted else "heatmap_png"),
+                "Low cost" if not inverted else "High cost",
+                "High cost" if not inverted else "Low cost",
+            ),
+            (
+                "Feature-Aware QEM cost",
+                qem.get("feature_heatmap_inverse_png" if inverted else "feature_heatmap_png"),
+                "Low cost" if not inverted else "High cost",
+                "High cost" if not inverted else "Low cost",
+            ),
+            (
+                "Normal variation H",
+                scale.get("mean_curvature_heatmap_inverse" if inverted else "mean_curvature_heatmap"),
+                "Low variation" if not inverted else "High variation",
+                "High variation" if not inverted else "Low variation",
+            ),
+            (
+                "Center-surround response",
+                scale.get("center_surround_heatmap_inverse" if inverted else "center_surround_heatmap"),
+                "Similar to surround" if not inverted else "Different from surround",
+                "Different from surround" if not inverted else "Similar to surround",
+            ),
+            (
+                "Scale persistence",
+                scale.get("scale_persistence_heatmap_inverse" if inverted else "scale_persistence_heatmap"),
+                "Low persistence" if not inverted else "High persistence",
+                "High persistence" if not inverted else "Low persistence",
+            ),
+            (
+                "Tiny detail score",
+                scale.get("tiny_detail_heatmap_inverse" if inverted else "tiny_detail_heatmap"),
+                "Not tiny detail" if not inverted else "Likely removable",
+                "Likely removable" if not inverted else "Not tiny detail",
+            ),
+        ]
+        missing = [title for title, path_value, *_ in definitions if not path_value or not Path(str(path_value)).exists()]
+        if missing:
+            return _json({"errors": [f"Missing heatmap images: {', '.join(missing)}"]})
+
+        output_root = (self._selected_file.parent if self._selected_file else Path.cwd()) / "heatmap_exports"
+        output_root.mkdir(parents=True, exist_ok=True)
+        output_path = output_root / f"heatmap_comparison_{mode}.svg"
+        title = f"Heatmap Diagnostics Comparison ({mode})"
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        image_width = 1040
+        image_height = 742
+        card_width = 1120
+        card_height = 900
+        gap = 40
+        margin = 60
+        header_height = 110
+        svg_width = margin * 2 + card_width * 2 + gap
+        svg_height = margin + header_height + card_height * 3 + gap * 2 + 50
+
+        cards: list[str] = []
+        for index, (name, path_value, low_label, high_label) in enumerate(definitions):
+            row = index // 2
+            col = index % 2
+            x = margin + col * (card_width + gap)
+            y = margin + header_height + row * (card_height + gap)
+            image_uri = _image_data_uri(Path(str(path_value)))
+            cards.append(
+                f"""
+  <g transform="translate({x},{y})">
+    <rect width="{card_width}" height="{card_height}" rx="18" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="28" y="48" font-size="28" font-weight="700" fill="#18202b">{html.escape(name)}</text>
+    <image x="28" y="72" width="{image_width}" height="{image_height}" preserveAspectRatio="xMidYMid meet" href="{image_uri}"/>
+    <text x="28" y="852" font-size="20" font-weight="700" fill="#667085">{html.escape(low_label)}</text>
+    <rect x="260" y="836" width="600" height="20" rx="10" fill="url(#heatmapGradient)"/>
+    <text x="1068" y="852" text-anchor="end" font-size="20" font-weight="700" fill="#667085">{html.escape(high_label)}</text>
+  </g>"""
+            )
+
+        svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{svg_width}" height="{svg_height}" viewBox="0 0 {svg_width} {svg_height}">
+  <defs>
+    <linearGradient id="heatmapGradient" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#051cff"/>
+      <stop offset="32%" stop-color="#00bff0"/>
+      <stop offset="52%" stop-color="#39d353"/>
+      <stop offset="74%" stop-color="#ffd21a"/>
+      <stop offset="100%" stop-color="#e51518"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="#edf1f5"/>
+  <text x="{margin}" y="{margin + 36}" font-size="38" font-weight="800" fill="#18202b">{html.escape(title)}</text>
+  <text x="{margin}" y="{margin + 74}" font-size="22" fill="#667085">Source: {html.escape(str(self._selected_file or 'unknown'))} | Generated: {html.escape(generated_at)}</text>
+  {''.join(cards)}
+</svg>
+"""
+        output_path.write_text(svg, encoding="utf-8")
+        payload = {
+            "path": str(output_path),
+            "url": _file_url(output_path),
+            "mode": mode,
+            "errors": [],
+        }
+        self.logAdded.emit(f"Exported heatmap comparison: {output_path}")
+        return _json(payload)
+
+    @Slot(result=str)
+    def exportAFCostCandidates(self) -> str:
+        report = self._state.get("afcostCandidates") or {}
+        candidates = report.get("candidates") or []
+        if not candidates:
+            return _json({"errors": ["Generate AF cost candidates before exporting."]})
+        missing = [
+            str(candidate.get("name", "candidate"))
+            for candidate in candidates
+            if not candidate.get("heatmap_png") or not Path(str(candidate.get("heatmap_png"))).exists()
+        ]
+        if missing:
+            return _json({"errors": [f"Missing candidate images: {', '.join(missing)}"]})
+
+        output_root = (self._selected_file.parent if self._selected_file else Path.cwd()) / "heatmap_exports"
+        output_root.mkdir(parents=True, exist_ok=True)
+        output_path = output_root / "afcost_candidates_comparison.svg"
+        card_width = 640
+        card_height = 560
+        image_width = 584
+        image_height = 418
+        gap = 30
+        margin = 50
+        header_height = 116
+        columns = 3
+        rows = (len(candidates) + columns - 1) // columns
+        svg_width = margin * 2 + card_width * columns + gap * (columns - 1)
+        svg_height = margin + header_height + card_height * rows + gap * max(0, rows - 1) + 40
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cards: list[str] = []
+        for index, candidate in enumerate(candidates):
+            row = index // columns
+            col = index % columns
+            x = margin + col * (card_width + gap)
+            y = margin + header_height + row * (card_height + gap)
+            name = str(candidate.get("name", "-"))
+            formula = str(candidate.get("formula", ""))
+            image_uri = _image_data_uri(Path(str(candidate.get("heatmap_png"))))
+            cards.append(
+                f"""
+  <g transform="translate({x},{y})">
+    <rect width="{card_width}" height="{card_height}" rx="16" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="24" y="42" font-size="24" font-weight="800" fill="#18202b">{html.escape(name)}</text>
+    <text x="24" y="72" font-size="15" font-weight="700" fill="#667085">{html.escape(formula)}</text>
+    <image x="24" y="92" width="{image_width}" height="{image_height}" preserveAspectRatio="xMidYMid meet" href="{image_uri}"/>
+    <text x="24" y="535" font-size="16" font-weight="700" fill="#667085">Low combo score</text>
+    <rect x="210" y="522" width="250" height="16" rx="8" fill="url(#heatmapGradient)"/>
+    <text x="608" y="535" text-anchor="end" font-size="16" font-weight="700" fill="#667085">High combo score</text>
+  </g>"""
+            )
+        svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{svg_width}" height="{svg_height}" viewBox="0 0 {svg_width} {svg_height}">
+  <defs>
+    <linearGradient id="heatmapGradient" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#051cff"/>
+      <stop offset="32%" stop-color="#00bff0"/>
+      <stop offset="52%" stop-color="#39d353"/>
+      <stop offset="74%" stop-color="#ffd21a"/>
+      <stop offset="100%" stop-color="#e51518"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="#edf1f5"/>
+  <text x="{margin}" y="{margin + 36}" font-size="38" font-weight="800" fill="#18202b">AF Cost Candidate Comparison</text>
+  <text x="{margin}" y="{margin + 74}" font-size="20" fill="#667085">Source: {html.escape(str(self._selected_file or 'unknown'))} | Generated: {html.escape(generated_at)}</text>
+  {''.join(cards)}
+</svg>
+"""
+        output_path.write_text(svg, encoding="utf-8")
+        self.logAdded.emit(f"Exported AF cost candidate comparison: {output_path}")
+        return _json({"path": str(output_path), "url": _file_url(output_path), "errors": []})
 
     @Slot(int)
     def setTargetTriangles(self, target_triangles: int) -> None:
@@ -213,6 +415,9 @@ class AssetForgeBridge(QObject):
                 "realPreview": None,
                 "geometryReport": None,
                 "simplificationReport": None,
+                "qemHeatmap": None,
+                "scaleAnalysis": None,
+                "afcostCandidates": None,
                 "build": None,
                 "currentPreviewTarget": None,
                 "status": "Loading original model preview..."
@@ -534,6 +739,81 @@ class AssetForgeBridge(QObject):
         worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
         self._start_worker(worker)
 
+    @Slot()
+    def generateQemHeatmap(self) -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a model file before generating a QEM cost heatmap.")
+            return
+        if self._start_busy("Computing QEM edge cost heatmap..."):
+            return
+        source_file = self._pipeline_blend_file()
+        worker = QemHeatmapWorker(
+            self._qem_heatmap_service,
+            source_file,
+            self._selected_file.parent / "qem_heatmaps",
+        )
+        worker.signals.started.connect(
+            lambda: self._run_on_ui(
+                lambda: self.logAdded.emit(f"QEM heatmap started for {source_file.name}.")
+            )
+        )
+        worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
+        worker.signals.finished.connect(
+            lambda report: self._run_on_ui(lambda: self._qem_heatmap_finished(report))
+        )
+        worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
+        self._start_worker(worker)
+
+    @Slot()
+    def generateScaleAnalysis(self) -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a model file before running Scale Analysis.")
+            return
+        if self._start_busy("Computing scale analysis heatmaps..."):
+            return
+        source_file = self._pipeline_blend_file()
+        worker = ScaleAnalysisWorker(
+            self._scale_analysis_service,
+            source_file,
+            self._selected_file.parent / "scale_analysis",
+        )
+        worker.signals.started.connect(
+            lambda: self._run_on_ui(
+                lambda: self.logAdded.emit(f"Scale Analysis started for {source_file.name}.")
+            )
+        )
+        worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
+        worker.signals.finished.connect(
+            lambda report: self._run_on_ui(lambda: self._scale_analysis_finished(report))
+        )
+        worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
+        self._start_worker(worker)
+
+    @Slot()
+    def generateAFCostCandidates(self) -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a model file before generating AF cost candidates.")
+            return
+        if self._start_busy("Computing AF cost candidate heatmaps..."):
+            return
+        source_file = self._pipeline_blend_file()
+        worker = AFCostCandidateWorker(
+            self._afcost_candidate_service,
+            source_file,
+            self._selected_file.parent / "afcost_candidates",
+        )
+        worker.signals.started.connect(
+            lambda: self._run_on_ui(
+                lambda: self.logAdded.emit(f"AF cost candidates started for {source_file.name}.")
+            )
+        )
+        worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
+        worker.signals.finished.connect(
+            lambda report: self._run_on_ui(lambda: self._afcost_candidates_finished(report))
+        )
+        worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
+        self._start_worker(worker)
+
     @Slot(int, bool)
     def buildCitiesSkylinesAsset(self, target_triangles: int, optimize: bool) -> None:
         if not self._selected_file:
@@ -766,6 +1046,12 @@ class AssetForgeBridge(QObject):
             f"{payload['preprocessed_triangle_count']:,} tris "
             f"({payload['reduction_percentage']:.2f}% removed)"
         )
+        if payload.get("joined_mesh_objects"):
+            self.logAdded.emit(
+                "Preprocess model join: "
+                f"{int(payload.get('original_object_count', 0)):,} mesh objects -> "
+                f"{int(payload.get('preprocessed_object_count', 0)):,} model"
+            )
 
     def _simplification_report_finished(self, report: object) -> None:
         payload = simplification_report_to_dict(report)
@@ -782,6 +1068,81 @@ class AssetForgeBridge(QObject):
             "Simplification: "
             f"{payload['removed_triangle_count']:,} triangles removed "
             f"({payload['reduction_percentage']:.2f}%)"
+        )
+
+    def _qem_heatmap_finished(self, report: object) -> None:
+        payload = dict(report) if isinstance(report, dict) else {}
+        image_path = Path(str(payload.get("heatmap_png", "")))
+        inverse_image_path = Path(str(payload.get("heatmap_inverse_png", "")))
+        feature_image_path = Path(str(payload.get("feature_heatmap_png", "")))
+        feature_inverse_image_path = Path(str(payload.get("feature_heatmap_inverse_png", "")))
+        ply_path = Path(str(payload.get("heatmap_ply", "")))
+        feature_ply_path = Path(str(payload.get("feature_heatmap_ply", "")))
+        payload["heatmap_png_url"] = _file_url(image_path)
+        payload["heatmap_inverse_png_url"] = _file_url(inverse_image_path)
+        payload["feature_heatmap_png_url"] = _file_url(feature_image_path)
+        payload["feature_heatmap_inverse_png_url"] = _file_url(feature_inverse_image_path)
+        payload["heatmap_ply_exists"] = ply_path.exists()
+        payload["feature_heatmap_ply_exists"] = feature_ply_path.exists()
+        self._state["qemHeatmap"] = payload
+        status = "QEM cost heatmap complete" if not payload.get("errors") else "QEM heatmap found issues"
+        self._finish_busy(status)
+        stats = payload.get("cost_statistics", {})
+        self.logAdded.emit(
+            "QEM heatmap: "
+            f"{int(payload.get('edge_count', 0)):,} edges, "
+            f"median cost {float(stats.get('median', 0.0)):.6g}"
+        )
+
+    def _scale_analysis_finished(self, report: object) -> None:
+        payload = dict(report) if isinstance(report, dict) else {}
+        mean_path = Path(str(payload.get("mean_curvature_heatmap", "")))
+        mean_inverse_path = Path(str(payload.get("mean_curvature_heatmap_inverse", "")))
+        center_path = Path(str(payload.get("center_surround_heatmap", "")))
+        center_inverse_path = Path(str(payload.get("center_surround_heatmap_inverse", "")))
+        persistence_path = Path(str(payload.get("scale_persistence_heatmap", "")))
+        persistence_inverse_path = Path(str(payload.get("scale_persistence_heatmap_inverse", "")))
+        tiny_path = Path(str(payload.get("tiny_detail_heatmap", "")))
+        tiny_inverse_path = Path(str(payload.get("tiny_detail_heatmap_inverse", "")))
+        payload["mean_curvature_heatmap_url"] = _file_url(mean_path)
+        payload["mean_curvature_heatmap_inverse_url"] = _file_url(mean_inverse_path)
+        payload["center_surround_heatmap_url"] = _file_url(center_path)
+        payload["center_surround_heatmap_inverse_url"] = _file_url(center_inverse_path)
+        payload["scale_persistence_heatmap_url"] = _file_url(persistence_path)
+        payload["scale_persistence_heatmap_inverse_url"] = _file_url(persistence_inverse_path)
+        payload["tiny_detail_heatmap_url"] = _file_url(tiny_path)
+        payload["tiny_detail_heatmap_inverse_url"] = _file_url(tiny_inverse_path)
+        self._state["scaleAnalysis"] = payload
+        status = (
+            "Scale Analysis complete"
+            if not payload.get("errors")
+            else "Scale Analysis found issues"
+        )
+        self._finish_busy(status)
+        interpretation = payload.get("interpretation", {})
+        tiny_ratio = float(interpretation.get("tiny_detail_ratio", 0.0))
+        self.logAdded.emit(
+            "Scale Analysis: "
+            f"{int(payload.get('vertex_count', 0)):,} vertices, "
+            f"tiny detail ratio {tiny_ratio:.1%}"
+        )
+
+    def _afcost_candidates_finished(self, report: object) -> None:
+        payload = dict(report) if isinstance(report, dict) else {}
+        for candidate in payload.get("candidates", []) or []:
+            image_path = Path(str(candidate.get("heatmap_png", "")))
+            candidate["heatmap_png_url"] = _file_url(image_path)
+        self._state["afcostCandidates"] = payload
+        status = (
+            "AF cost candidates complete"
+            if not payload.get("errors")
+            else "AF cost candidates found issues"
+        )
+        self._finish_busy(status)
+        self.logAdded.emit(
+            "AF cost candidates: "
+            f"{int(payload.get('candidate_count', 0)):,} formulas, "
+            f"{int(payload.get('edge_count', 0)):,} edges"
         )
 
     def _build_finished(self, report: object) -> None:
@@ -924,6 +1285,9 @@ class WebMainWindow(QMainWindow):
         model_preview_service: ModelPreviewService,
         geometry_report_service: GeometryReportService,
         simplification_report_service: SimplificationReportService,
+        qem_heatmap_service: QemHeatmapService,
+        scale_analysis_service: ScaleAnalysisService,
+        afcost_candidate_service: AFCostCandidateService,
         blender_configuration: BlenderConfigurationService,
     ) -> None:
         super().__init__()
@@ -943,6 +1307,9 @@ class WebMainWindow(QMainWindow):
             model_preview_service,
             geometry_report_service,
             simplification_report_service,
+            qem_heatmap_service,
+            scale_analysis_service,
+            afcost_candidate_service,
             blender_configuration,
         )
         self._channel.registerObject("assetForge", self._bridge)

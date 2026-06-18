@@ -7,6 +7,7 @@ from assetforge.blender.executor import BlenderBackgroundExecutor
 from assetforge.blender.service import BlenderVehicleService
 from assetforge.core.config import AssetForgeConfig, UserConfigStore
 from assetforge.services.blender_configuration import BlenderConfigurationService
+from assetforge.services.afcost_candidates import AFCostCandidateService
 from assetforge.services.geometry_report import GeometryReportService
 from assetforge.services.model_preview import ModelPreviewService
 from assetforge.services.vehicle_analysis import VehicleAnalysisService
@@ -14,7 +15,9 @@ from assetforge.services.vehicle_export import VehicleExportService
 from assetforge.services.vehicle_optimization import VehicleOptimizationService
 from assetforge.services.optimization_preview import OptimizationPreviewService
 from assetforge.services.preprocess import PreprocessService
+from assetforge.services.qem_heatmap import QemHeatmapService
 from assetforge.services.real_optimization_preview import RealOptimizationPreviewService
+from assetforge.services.scale_analysis import ScaleAnalysisService
 from assetforge.services.simplification_report import SimplificationReportService
 from assetforge.services.vehicle_validation import VehicleValidationService
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
@@ -33,6 +36,9 @@ class AppServices:
     model_preview: ModelPreviewService
     geometry_report: GeometryReportService
     simplification_report: SimplificationReportService
+    qem_heatmap: QemHeatmapService
+    scale_analysis: ScaleAnalysisService
+    afcost_candidates: AFCostCandidateService
     blender_configuration: BlenderConfigurationService
 
 
@@ -53,6 +59,9 @@ def build_app_services(config: AssetForgeConfig) -> AppServices:
         model_preview=ModelPreviewService(blender_service),
         geometry_report=GeometryReportService(blender_service),
         simplification_report=SimplificationReportService(blender_service),
+        qem_heatmap=QemHeatmapService(blender_service),
+        scale_analysis=ScaleAnalysisService(blender_service),
+        afcost_candidates=AFCostCandidateService(blender_service),
         blender_configuration=BlenderConfigurationService(locator, config_store),
     )
 

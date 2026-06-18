@@ -9,6 +9,9 @@ let firstViewportFrameLogged = false;
 let viewportZoom = 1.0;
 let lastGeometryReportKey = null;
 let lastSimplificationReportKey = null;
+let lastQemHeatmapKey = null;
+let lastScaleAnalysisKey = null;
+let lastAFCostCandidateKey = null;
 let pendingAfterPreprocess = null;
 let lastPreprocessContinuationKey = null;
 let autoPreprocessFileKey = null;
@@ -16,8 +19,12 @@ let cleanedPreviewRefreshKey = null;
 let pendingPipelineStage = 1;
 let lastPipelineReviewKey = null;
 let pipelineReviewAction = "apply_stage";
+let qemViewMode = "classic";
+let heatmapInverted = false;
+let pendingHeatmapDiagnostics = false;
 const VIEW_YAW = 0.62;
 const VIEW_PITCH = -0.22;
+const LEGACY_PIPELINE_PREFIX = "Stage";
 
 const $ = (id) => document.getElementById(id);
 
@@ -76,6 +83,19 @@ function previewImageMarkup(url, label) {
     : '<div class="empty-preview">Preview unavailable</div>';
 }
 
+function emptyPreviewMarkup(message) {
+  return `<div class="empty-preview">${escapeHtml(message)}</div>`;
+}
+
+function formatCost(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  if (number === 0) return "0";
+  if (Math.abs(number) < 0.001 || Math.abs(number) >= 1000) return number.toExponential(3);
+  return number.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
 function renderPreviewNotice(kind, title, lines, errors = []) {
   const notice = $("previewNotice");
   const allLines = [...(lines || []), ...(errors || [])].filter(Boolean);
@@ -111,12 +131,12 @@ function hasPreviewForTarget() {
   return Boolean(currentPreviewItem());
 }
 
-function previewRanStage2(item = currentPreviewItem()) {
-  return Boolean(item && (item.warnings || []).some((line) => String(line).startsWith("Stage 2 ")));
+function previewRanAdvancedReduce(item = currentPreviewItem()) {
+  return Boolean(item && (item.warnings || []).some((line) => String(line).startsWith(`${LEGACY_PIPELINE_PREFIX} 2 `)));
 }
 
-function previewRanStage3(item = currentPreviewItem()) {
-  return Boolean(item && (item.warnings || []).some((line) => String(line).startsWith("Stage 3 ")));
+function previewRanDetailCleanup(item = currentPreviewItem()) {
+  return Boolean(item && (item.warnings || []).some((line) => String(line).startsWith(`${LEGACY_PIPELINE_PREFIX} 3 `)));
 }
 
 function previewReachedTarget(item = currentPreviewItem()) {
@@ -125,12 +145,12 @@ function previewReachedTarget(item = currentPreviewItem()) {
 
 function needsAggressiveReview() {
   const item = currentPreviewItem();
-  return hasPreviewForTarget() && item && !previewRanStage2(item) && !previewReachedTarget(item);
+  return hasPreviewForTarget() && item && !previewRanAdvancedReduce(item) && !previewReachedTarget(item);
 }
 
 function needsDetailSuppressionReview() {
   const item = currentPreviewItem();
-  return hasPreviewForTarget() && item && previewRanStage2(item) && !previewRanStage3(item) && !previewReachedTarget(item);
+  return hasPreviewForTarget() && item && previewRanAdvancedReduce(item) && !previewRanDetailCleanup(item) && !previewReachedTarget(item);
 }
 
 function importRiskLabel(rating) {
@@ -142,101 +162,47 @@ function importRiskLabel(rating) {
 }
 
 function stageLinesFromWarnings(warnings) {
-  return (warnings || []).filter((line) => String(line).startsWith("Stage "));
+  return (warnings || []).filter((line) => String(line).startsWith(`${LEGACY_PIPELINE_PREFIX} `));
 }
 
 function nonStageWarnings(warnings) {
-  return (warnings || []).filter((line) => !String(line).startsWith("Stage "));
+  return (warnings || []).filter((line) => !String(line).startsWith(`${LEGACY_PIPELINE_PREFIX} `));
 }
 
-function stageDebugSummary(debugItem) {
-  const report = debugItem && debugItem.report ? debugItem.report : {};
-  const rows = [];
-  if (report.input_tris !== undefined) rows.push(["Input", `${formatNumber(report.input_tris)} tris`]);
-  if (report.output_tris !== undefined) rows.push(["Output", `${formatNumber(report.output_tris)} tris`]);
-  if (report.target_tris !== undefined) rows.push(["Target", `${formatNumber(report.target_tris)} tris`]);
-  if (report.base_silhouette_tris !== undefined) rows.push(["Base silhouette", `${formatNumber(report.base_silhouette_tris)} tris`]);
-  if (report.expanded_must_keep_tris !== undefined) rows.push(["MUST_KEEP", `${formatNumber(report.expanded_must_keep_tris)} tris`]);
-  if (report.expanded_soft_keep_tris !== undefined) rows.push(["SOFT_KEEP", `${formatNumber(report.expanded_soft_keep_tris)} tris`]);
-  if (report.deleted_tris !== undefined) rows.push(["Deleted", `${formatNumber(report.deleted_tris)} tris`]);
-  if (report.deleted_tris_estimate !== undefined) rows.push(["Deleted estimate", `${formatNumber(report.deleted_tris_estimate)} tris`]);
-  if (report.deleted_components !== undefined) rows.push(["Deleted components", formatNumber(report.deleted_components)]);
-  if (report.dissolved_polygons !== undefined) rows.push(["Dissolved", `${formatNumber(report.dissolved_polygons)} polygons`]);
-  if (report.dissolved_delete_polygons !== undefined) rows.push(["Strong dissolve", `${formatNumber(report.dissolved_delete_polygons)} polygons`]);
-  if (report.dissolved_reduce_polygons !== undefined) rows.push(["Medium dissolve", `${formatNumber(report.dissolved_reduce_polygons)} polygons`]);
-  if (report.marked_delete_candidate_tris !== undefined) rows.push(["Delete candidates", `${formatNumber(report.marked_delete_candidate_tris)} tris`]);
-  if (report.attached_detail_reduce_tris !== undefined) rows.push(["Attached details", `${formatNumber(report.attached_detail_reduce_tris)} reduce tris`]);
-  if (report.attached_detail_delete_tris !== undefined) rows.push(["Tiny attached", `${formatNumber(report.attached_detail_delete_tris)} delete tris`]);
-  if (report.bevel_strip_tris !== undefined) rows.push(["Bevel strips", `${formatNumber(report.bevel_strip_tris)} tris`]);
-  if (report.cylinder_detail_tris !== undefined) rows.push(["Cylinder details", `${formatNumber(report.cylinder_detail_tris)} tris`]);
-  if (report.remaining_tris !== undefined) rows.push(["Remaining", `${formatNumber(report.remaining_tris)} tris`]);
-  if (report.target_vertices !== undefined) rows.push(["Target vertices", formatNumber(report.target_vertices)]);
-  if (report.protected_vertices !== undefined) rows.push(["Protected vertices", formatNumber(report.protected_vertices)]);
-  if (report.decimated_objects && report.decimated_objects.length) rows.push(["Decimated objects", report.decimated_objects.join(", ")]);
-  if (report.soft_keep_deferred) rows.push(["SOFT_KEEP", "Deferred"]);
-  if (report.skipped) rows.push(["Skipped", report.skipped]);
-  if (!rows.length && debugItem.stage_id === "Final") rows.push(["Preview", "Final optimized render"]);
-  return rows;
-}
-
-function selectStageDebugItem(index) {
-  const item = currentPreviewItem();
-  const debugItems = item && item.stage_debug ? item.stage_debug : [];
-  const debugItem = debugItems[index];
-  if (!debugItem) return;
-  $("pipelineReviewImage").innerHTML = previewImageMarkup(debugItem.image_url, debugItem.title);
-  document.querySelectorAll(".stage-debug-tab").forEach((button, buttonIndex) => {
-    button.classList.toggle("active", buttonIndex === index);
+function userFacingPipelineLines(warnings) {
+  return stageLinesFromWarnings(warnings).map((line) => {
+    const text = String(line);
+    const conservative = `${LEGACY_PIPELINE_PREFIX} 1`;
+    const advanced = `${LEGACY_PIPELINE_PREFIX} 2`;
+    const cleanup = `${LEGACY_PIPELINE_PREFIX} 3`;
+    return text
+      .replace(new RegExp(`^${conservative} Conservative Importance-Aware Reduce:`), "Conservative reduce:")
+      .replace(new RegExp(`^${conservative} did not reach target; entering ${advanced} Advanced Reduce\\.`), "Conservative reduce stopped above target; advanced reduce was started.")
+      .replace(new RegExp(`^${conservative} did not reach target\\. ${advanced} Advanced Reduce was not run because the selected pipeline depth is Conservative only\\.`), "Conservative reduce stopped above target. Advanced reduce was not run.")
+      .replace(new RegExp(`^${advanced} Triangle Budget Planner:`), "Triangle budget:")
+      .replace(new RegExp(`^${advanced} Advanced Reduce:`), "Advanced reduce:")
+      .replace(new RegExp(`^${advanced} did not reach target; entering ${cleanup} Detail Suppression\\.`), "Advanced reduce stopped above target; detail cleanup was started.")
+      .replace(new RegExp(`^${cleanup} Detail Suppression:`), "Detail cleanup:")
+      .replace(new RegExp(`^${cleanup} `), "Detail cleanup ")
+      .replace(new RegExp(`^${advanced} `), "Advanced reduce ")
+      .replace(new RegExp(`^${conservative} `), "Conservative reduce ");
   });
-  const rows = stageDebugSummary(debugItem);
-  $("stageDebugMeta").innerHTML = `
-    <strong>${escapeHtml(debugItem.stage_id)} ${escapeHtml(debugItem.title)}</strong>
-    ${rows.map(([label, value]) => `<span><b>${escapeHtml(label)}</b>${escapeHtml(value)}</span>`).join("")}
-    ${debugItem.report_path ? `<small>${escapeHtml(debugItem.report_path)}</small>` : ""}
-  `;
-}
-
-function renderStageDebug(item) {
-  const panel = $("stageDebugPanel");
-  const tabs = $("stageDebugTabs");
-  const debugItems = item && item.stage_debug ? item.stage_debug : [];
-  if (!debugItems.length) {
-    panel.hidden = true;
-    tabs.innerHTML = "";
-    $("stageDebugMeta").innerHTML = "";
-    return;
-  }
-  panel.hidden = false;
-  tabs.innerHTML = debugItems
-    .map((debugItem, index) => `
-      <button class="secondary stage-debug-tab" data-stage-debug-index="${index}">
-        ${escapeHtml(debugItem.stage_id)}
-      </button>
-    `)
-    .join("");
-  tabs.querySelectorAll("[data-stage-debug-index]").forEach((button) => {
-    button.addEventListener("click", () => {
-      selectStageDebugItem(Number(button.dataset.stageDebugIndex));
-    });
-  });
-  selectStageDebugItem(0);
 }
 
 function workflowActionLabel() {
-  if (!hasGeometryReport()) return "Analyze Stage 1";
-  if (!hasPreviewForTarget()) return "Review Stage 1";
-  if (needsAggressiveReview()) return "Review Stage 2";
-  if (needsDetailSuppressionReview()) return "Review Stage 3";
-  return "Review Result";
+  return "Heatmap Diagnostics";
 }
 
 function runWorkflowAction() {
-  const label = workflowActionLabel();
-  appendLog(`${label} clicked.`);
-  if (!hasGeometryReport()) {
-    bridge.generateGeometryReport();
+  appendLog("Heatmap Diagnostics clicked.");
+  pendingHeatmapDiagnostics = true;
+  if (state.qemHeatmap && state.scaleAnalysis) {
+    pendingHeatmapDiagnostics = false;
+    openScaleModal();
+  } else if (!state.qemHeatmap) {
+    runWithOptionalPreprocess("qem");
   } else {
-    openPipelineReviewModal();
+    runWithOptionalPreprocess("scale");
   }
 }
 
@@ -505,16 +471,10 @@ function updateBusy() {
   const optimizeEnabled = true;
   const hasCurrentAnalysis = hasGeometryReport();
   const hasCurrentOptimizedPreview = hasOptimizedPreviewForTarget();
-  $("analyzeBtn").disabled = state.busy || !hasBlendFile;
   $("workflowActionBtn").disabled = state.busy || !hasFile;
   $("workflowActionBtn").textContent = workflowActionLabel();
   $("simplificationReportBtn").disabled = state.busy || !hasBlendFile || !state.currentPreviewTarget;
   $("buildBtn").disabled = state.busy || !hasBlendFile;
-  $("summaryOptimizeBtn").disabled = state.busy || !hasBlendFile || !hasCurrentAnalysis;
-  $("summaryOptimizeBtn").textContent = hasCurrentOptimizedPreview
-    ? (needsAggressiveReview() ? "Review Stage 2" : (needsDetailSuppressionReview() ? "Review Stage 3" : "Review Result"))
-    : "Review Stage 1";
-  $("openReportBtn").disabled = !hasCurrentAnalysis;
   $("applyPreviewBtn").disabled = state.busy || !state.currentPreviewTarget || !optimizeEnabled;
   $("selectFileBtn").disabled = state.busy;
   $("browseBlenderBtn").disabled = state.busy;
@@ -568,12 +528,12 @@ function renderState(nextState) {
       [
         `${formatNumber(preview.original_triangle_count)} -> ${formatNumber(item.actual_triangles)} tris (${Number(item.reduction_percent).toFixed(2)}% removed)`,
         `Target was ${formatNumber(item.target_triangles)} tris. Next optimized build will use ${basename(item.preview_blend_path)}.`,
-        ...stageLinesFromWarnings(item.warnings),
+        ...userFacingPipelineLines(item.warnings),
         ...nonStageWarnings(item.warnings),
       ],
       item.errors || [],
     );
-    const reviewKey = `${item.preview_blend_path}:${item.actual_triangles}:${previewRanStage2(item)}`;
+    const reviewKey = `${item.preview_blend_path}:${item.actual_triangles}:${previewRanAdvancedReduce(item)}`;
     if (lastPipelineReviewKey !== reviewKey) {
       lastPipelineReviewKey = reviewKey;
       window.requestAnimationFrame(openPipelineReviewModal);
@@ -660,7 +620,10 @@ function renderState(nextState) {
 
   renderGeometryReport(state.geometryReport);
   renderSimplificationReport(state.simplificationReport);
+  renderQemHeatmap(state.qemHeatmap);
+  renderScaleAnalysis(state.scaleAnalysis);
   continueAfterPreprocessIfNeeded();
+  continueHeatmapDiagnosticsIfNeeded();
   refreshCleanedPreviewIfNeeded();
   startAutoPreprocessAfterImportIfNeeded();
 }
@@ -711,6 +674,10 @@ function runWithOptionalPreprocess(action, pipelineStage = 1) {
     bridge.generateRealPreview(targetValue(), pipelineStage);
   } else if (action === "build") {
     bridge.buildCitiesSkylinesAsset(targetValue(), hasOptimizedPreviewForTarget());
+  } else if (action === "qem") {
+    bridge.generateQemHeatmap();
+  } else if (action === "scale") {
+    bridge.generateScaleAnalysis();
   }
 }
 
@@ -722,7 +689,7 @@ function continueAfterPreprocessIfNeeded() {
   const pending = pendingAfterPreprocess;
   pendingAfterPreprocess = null;
   if (state.preprocess.errors && state.preprocess.errors.length) {
-    appendLog("Auto cleanup failed; preview/build was not started.");
+    appendLog("Auto cleanup failed; pending action was not started.");
     return;
   }
   if (pending.action === "preview") {
@@ -731,31 +698,113 @@ function continueAfterPreprocessIfNeeded() {
   } else if (pending.action === "build") {
     appendLog("Auto cleanup complete. Building Cities Skylines asset.");
     bridge.buildCitiesSkylinesAsset(pending.target, pending.optimize);
+  } else if (pending.action === "qem") {
+    appendLog("Auto cleanup complete. Generating QEM heatmaps from the joined model.");
+    bridge.generateQemHeatmap();
+  } else if (pending.action === "scale") {
+    appendLog("Auto cleanup complete. Generating scale analysis from the joined model.");
+    bridge.generateScaleAnalysis();
   }
 }
 
-function openReportModal() {
-  if (!state.geometryReport) return;
-  $("reportModal").hidden = false;
-  $("geometryPanel").hidden = false;
+function continueHeatmapDiagnosticsIfNeeded() {
+  if (!pendingHeatmapDiagnostics || state.busy || pendingAfterPreprocess) return;
+  if (!state.qemHeatmap) {
+    runWithOptionalPreprocess("qem");
+    return;
+  }
+  if (!state.scaleAnalysis) {
+    runWithOptionalPreprocess("scale");
+    return;
+  }
+  pendingHeatmapDiagnostics = false;
+  openScaleModal();
 }
 
-function closeReportModal() {
-  $("reportModal").hidden = true;
+function openQemModal() {
+  if (!state.qemHeatmap) return;
+  $("qemModal").hidden = false;
+}
+
+function closeQemModal() {
+  $("qemModal").hidden = true;
+}
+
+function openScaleModal() {
+  if (!state.scaleAnalysis && !state.qemHeatmap) return;
+  $("scaleModal").hidden = false;
+}
+
+function closeScaleModal() {
+  $("scaleModal").hidden = true;
+}
+
+function openAFCostModal() {
+  $("afcostModal").hidden = false;
+}
+
+function closeAFCostModal() {
+  $("afcostModal").hidden = true;
+}
+
+function exportHeatmapComparison() {
+  if (!bridge || !bridge.exportHeatmapComparison) return;
+  appendLog(`Exporting ${heatmapInverted ? "inverted" : "normal"} heatmap comparison...`);
+  bridge.exportHeatmapComparison(heatmapInverted, (payloadText) => {
+    let payload = {};
+    try {
+      payload = JSON.parse(payloadText || "{}");
+    } catch (error) {
+      appendLog(`Export failed: ${error}`);
+      return;
+    }
+    const errors = payload.errors || [];
+    if (errors.length) {
+      appendLog(`Export failed: ${errors.join("; ")}`);
+      return;
+    }
+    appendLog(`Heatmap comparison exported: ${payload.path}`);
+    if (payload.url) {
+      window.open(payload.url, "_blank");
+    }
+  });
+}
+
+function exportAFCostCandidates() {
+  if (!bridge || !bridge.exportAFCostCandidates) return;
+  appendLog("Exporting AF cost candidate comparison...");
+  bridge.exportAFCostCandidates((payloadText) => {
+    let payload = {};
+    try {
+      payload = JSON.parse(payloadText || "{}");
+    } catch (error) {
+      appendLog(`Export failed: ${error}`);
+      return;
+    }
+    const errors = payload.errors || [];
+    if (errors.length) {
+      appendLog(`Export failed: ${errors.join("; ")}`);
+      return;
+    }
+    appendLog(`AF cost candidate comparison exported: ${payload.path}`);
+    if (payload.url) {
+      window.open(payload.url, "_blank");
+    }
+  });
 }
 
 function pipelineReviewKind() {
-  if (!hasGeometryReport()) return "stage1_analyze";
-  if (!hasPreviewForTarget()) return "stage1_plan";
-  if (needsAggressiveReview()) return "stage2_plan";
-  if (needsDetailSuppressionReview()) return "stage3_plan";
-  if (previewRanStage3()) return "stage3_result";
-  return previewRanStage2() ? "stage2_result" : "stage1_result";
+  if (!hasGeometryReport()) return "model_analysis";
+  if (!hasPreviewForTarget()) return "conservative_reduce_plan";
+  if (needsAggressiveReview()) return "advanced_reduce_plan";
+  if (needsDetailSuppressionReview()) return "detail_cleanup_plan";
+  if (previewRanDetailCleanup()) return "detail_cleanup_result";
+  return previewRanAdvancedReduce() ? "advanced_reduce_result" : "conservative_reduce_result";
 }
 
 function openPipelineReviewModal() {
   const kind = pipelineReviewKind();
-  pendingPipelineStage = kind === "stage3_plan" ? 3 : (kind === "stage2_plan" ? 2 : 1);
+  pendingPipelineStage = kind === "detail_cleanup_plan" ? 3 : (kind === "advanced_reduce_plan" ? 2 : 1);
   const item = currentPreviewItem();
   const geometryReport = state.geometryReport || {};
   const overall = geometryReport.overall || {};
@@ -765,19 +814,19 @@ function openPipelineReviewModal() {
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
-  let title = "Stage 1: Conservative candidate-aware reduce";
+  let title = "Conservative reduce";
   let eyebrow = "Stage Review";
   let imageUrl = geometryReport.heatmap_image_url;
   let stats = [];
   let noticeTitle = "Review before applying";
   let lines = [];
-  let applyLabel = "Apply Stage 1";
+  let applyLabel = "Apply Conservative Reduce";
   let applyDisabled = false;
   let secondaryLabel = "Close";
   pipelineReviewAction = "apply_stage";
 
-  if (kind === "stage1_plan") {
-    title = "Stage 1: Conservative candidate-aware reduce";
+  if (kind === "conservative_reduce_plan") {
+    title = "Conservative reduce";
     stats = [
       ["Current", `${formatNumber(overall.triangles)} tris`],
       ["Target", `${formatNumber(targetValue())} tris`],
@@ -786,46 +835,46 @@ function openPipelineReviewModal() {
     ];
     lines = [
       "This stage uses the current candidate report and only applies conservative reduction.",
-      "If it cannot reach the target without crossing safety limits, OccamForge will stop and ask before Stage 2.",
+      "If it cannot reach the target without crossing safety limits, OccamForge will stop and ask before advanced reduction.",
     ];
-  } else if (kind === "stage2_plan") {
-    title = "Stage 1 result";
+  } else if (kind === "advanced_reduce_plan") {
+    title = "Conservative reduce result";
     eyebrow = "Continue Pipeline";
     imageUrl = item.preview_image_url;
-    applyLabel = "Continue to Stage 2";
+    applyLabel = "Continue to Advanced Reduce";
     secondaryLabel = "Use Current Result";
     pipelineReviewAction = "apply_stage";
     stats = [
-      ["Stage 1 result", `${formatNumber(item.actual_triangles)} tris`],
+      ["Current result", `${formatNumber(item.actual_triangles)} tris`],
       ["Target", `${formatNumber(item.target_triangles)} tris`],
       ["Remaining gap", `${formatNumber(Math.max(0, Number(item.actual_triangles) - targetValue()))} tris`],
       ["Reduction so far", `${Number(item.reduction_percent).toFixed(2)}%`],
     ];
     lines = [
-      "Stage 1 stopped at its safe reduction limit and did not reach the target.",
-      "You can use this result now, or continue to Stage 2 for aggressive reduce-first optimization.",
-      ...stageLinesFromWarnings(item.warnings),
+      "The conservative pass stopped at its safe reduction limit and did not reach the target.",
+      "You can use this result now, or continue to the advanced reduce pass.",
+      ...userFacingPipelineLines(item.warnings),
     ];
-  } else if (kind === "stage3_plan") {
-    title = "Stage 2 result";
+  } else if (kind === "detail_cleanup_plan") {
+    title = "Advanced reduce result";
     eyebrow = "Continue Pipeline";
     imageUrl = item.preview_image_url;
-    applyLabel = "Continue to Stage 3";
+    applyLabel = "Continue to Detail Cleanup";
     secondaryLabel = "Use Current Result";
     pipelineReviewAction = "apply_stage";
     stats = [
-      ["Stage 2 result", `${formatNumber(item.actual_triangles)} tris`],
+      ["Current result", `${formatNumber(item.actual_triangles)} tris`],
       ["Target", `${formatNumber(item.target_triangles)} tris`],
       ["Remaining gap", `${formatNumber(Math.max(0, Number(item.actual_triangles) - targetValue()))} tris`],
       ["Reduction so far", `${Number(item.reduction_percent).toFixed(2)}%`],
     ];
     lines = [
-      "Stage 2 preserved the main structure but stopped above target.",
-      "Stage 3 applies generic detail suppression to low-visibility small features, rings, bevel strips, and repeated surface details.",
-      ...stageLinesFromWarnings(item.warnings),
+      "The advanced reduce pass preserved the main structure but stopped above target.",
+      "Detail cleanup suppresses low-visibility small features, rings, bevel strips, and repeated surface details.",
+      ...userFacingPipelineLines(item.warnings),
     ];
   } else {
-    title = previewRanStage3(item) ? "Stage 3 result" : (previewRanStage2(item) ? "Stage 2 result" : "Stage 1 result");
+    title = previewRanDetailCleanup(item) ? "Detail cleanup result" : (previewRanAdvancedReduce(item) ? "Advanced reduce result" : "Conservative reduce result");
     eyebrow = "Optimization Result";
     imageUrl = item.preview_image_url;
     applyLabel = "Use Current Result";
@@ -839,7 +888,7 @@ function openPipelineReviewModal() {
     ];
     noticeTitle = previewReachedTarget(item) ? "Target reached" : "Stopped before aggressive reduction";
     lines = [
-      ...stageLinesFromWarnings(item.warnings),
+      ...userFacingPipelineLines(item.warnings),
       ...nonStageWarnings(item.warnings).slice(0, 8),
     ];
   }
@@ -854,7 +903,6 @@ function openPipelineReviewModal() {
     <strong>${escapeHtml(noticeTitle)}</strong>
     ${lines.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}
   `;
-  renderStageDebug((previewRanStage2(item) || previewRanStage3(item)) ? item : null);
   $("applyPipelineStageBtn").textContent = applyLabel;
   $("applyPipelineStageBtn").disabled = state.busy || applyDisabled;
   $("stopPipelineBtn").textContent = secondaryLabel;
@@ -877,146 +925,19 @@ function refreshCleanedPreviewIfNeeded() {
 }
 
 function renderGeometryReport(report) {
-  const panel = $("geometryPanel");
-  const summaryPanel = $("analysisSummaryPanel");
   if (!report) {
-    panel.hidden = true;
-    summaryPanel.hidden = true;
     lastGeometryReportKey = null;
     return;
   }
-  panel.hidden = false;
-  summaryPanel.hidden = false;
-  const notice = $("geometryCompleteNotice");
   const reportKey = `${report.report_json_path}:${report.heatmap_image_path}`;
-  notice.hidden = false;
-  const candidateCount = (report.optimization_candidates || []).length;
-  const optimizedForTarget = hasOptimizedPreviewForTarget();
-  setText("analysisSummaryEyebrow", optimizedForTarget ? "Optimized Preview Ready" : "Analysis Ready");
-  setText(
-    "analysisSummaryTitle",
-    optimizedForTarget
-      ? "Current target has already been optimized"
-      : "Candidate-guided optimization can run now",
-  );
-  notice.innerHTML = `
-    <strong>Current Model Analysis Complete</strong>
-    <span>${formatNumber(candidateCount)} optimization candidates found. Review Stage 1 before applying reduction.</span>
-    <small>Saved to ${escapeHtml(report.report_json_path)}</small>
-  `;
-  const overall = report.overall || {};
-  const box = overall.bounding_box || {};
-  const planar = report.planar_regions || {};
-  const boundary = report.boundary || {};
-  const distribution = report.triangle_distribution || {};
-  const silhouette = report.silhouette || {};
-  const candidates = report.optimization_candidates || [];
-  $("geometryHeatmap").innerHTML = previewImageMarkup(report.heatmap_image_url, "Geometry density heatmap");
-  setText("geoVertices", formatNumber(overall.vertices));
-  setText("geoEdges", formatNumber(overall.edges));
-  setText("geoFaces", formatNumber(overall.faces));
-  setText("geoTriangles", `${formatNumber(overall.triangles)} tris`);
-  setText(
-    "geoBounds",
-    `${formatFloat(box.size_x)} x ${formatFloat(box.size_y)} x ${formatFloat(box.size_z)}`,
-  );
-  setText(
-    "geoPlanar",
-    `${formatNumber(planar.region_count)} regions, ${formatFloat(planar.triangle_percentage, 1)}% tris`,
-  );
-  setText("geoBoundary", `${formatNumber(boundary.count)} edges, ${formatFloat(boundary.length)} length`);
-  setText(
-    "geoSilhouette",
-    `${formatNumber(silhouette.protected_triangle_count)} tris, ${formatFloat(silhouette.protected_triangle_percentage, 1)}% protected`,
-  );
-  setText(
-    "geoTriangleArea",
-    `min ${formatFloat(distribution.min_area, 5)}, median ${formatFloat(distribution.median_area, 5)}, max ${formatFloat(distribution.max_area, 5)}`,
-  );
-  $("curvatureList").innerHTML = (report.curvature || [])
-    .map((item) => `
-      <div class="dense-row">
-        <strong>${escapeHtml(item.name)}</strong>
-        <span>${formatNumber(item.triangle_count)} tris</span>
-        <span>${formatFloat(item.percentage, 1)}%</span>
-      </div>
-    `)
-    .join("");
-  $("denseRegionList").innerHTML = (report.dense_regions || [])
-    .slice(0, 20)
-    .map((item) => `
-      <div class="dense-row">
-        <strong>${escapeHtml(item.region_id)}</strong>
-        <span>${formatNumber(item.triangle_count)} tris</span>
-        <span>${formatFloat(item.surface_area, 5)} area</span>
-        <span>${formatFloat(item.density, 3)} tris/unit</span>
-      </div>
-    `)
-    .join("");
-  $("silhouetteRegionList").innerHTML = ((silhouette.protected_regions || []))
-    .slice(0, 20)
-    .map((item) => `
-      <div class="dense-row">
-        <strong>${escapeHtml(item.object_name || "-")} / ${escapeHtml(item.region_id)}</strong>
-        <span>${formatNumber(item.triangle_count)} tris</span>
-        <span>${formatNumber(item.max_hits)} max hits</span>
-        <span>${formatFloat(item.average_hits, 2)} avg hits</span>
-        <span>${escapeHtml(item.recommended_action || "protect_candidate")}</span>
-      </div>
-    `)
-    .join("");
-  renderOptimizationCandidates(candidates);
-  if (lastGeometryReportKey !== reportKey) {
-    window.requestAnimationFrame(openPipelineReviewModal);
-  }
   lastGeometryReportKey = reportKey;
 }
 
-function candidateActionLabel(action) {
-  if (action === "protect_candidate") return "Protect";
-  if (action === "limited_dissolve_candidate") return "Dissolve";
-  if (action === "decimate_candidate") return "Decimate";
-  if (action === "inspect") return "Inspect";
-  return action || "-";
-}
-
-function renderOptimizationCandidates(candidates) {
-  const counts = candidates.reduce((acc, item) => {
-    const key = item.recommended_action || "unknown";
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
-  const summaryItems = [
-    ["protect_candidate", "Protect"],
-    ["limited_dissolve_candidate", "Dissolve"],
-    ["decimate_candidate", "Decimate"],
-    ["inspect", "Inspect"],
-  ];
-  $("candidateSummary").innerHTML = summaryItems
-    .map(([key, label]) => `
-      <span class="candidate-pill ${escapeHtml(key)}">
-        <strong>${formatNumber(counts[key] || 0)}</strong>
-        ${escapeHtml(label)}
-      </span>
-    `)
-    .join("");
-  $("optimizationCandidateList").innerHTML = candidates
-    .slice(0, 30)
-    .map((item) => `
-      <div class="dense-row candidate-row ${escapeHtml(item.recommended_action || "")}">
-        <strong>${escapeHtml(item.region_id)}</strong>
-        <span>${escapeHtml(candidateActionLabel(item.recommended_action))}</span>
-        <span>${formatNumber(item.triangle_count)} tris</span>
-        <span>${formatFloat(item.confidence, 2)} conf</span>
-        <span>${escapeHtml(item.region_type || "-")}</span>
-      </div>
-    `)
-    .join("");
-}
-
 function startOptimizePreview(pipelineStage = 1) {
-  const stageName = pipelineStage >= 2 ? "Stage 2 aggressive" : "Stage 1 conservative";
-  appendLog(`${stageName} optimization confirmed for ${formatNumber(targetValue())} tris.`);
+  const stageName = pipelineStage >= 3
+    ? "Detail cleanup"
+    : (pipelineStage >= 2 ? "Advanced reduce" : "Conservative reduce");
+  appendLog(`${stageName} confirmed for ${formatNumber(targetValue())} tris.`);
   closePipelineReviewModal();
   runWithOptionalPreprocess("preview", pipelineStage);
 }
@@ -1065,6 +986,223 @@ function renderSimplificationReport(report) {
     window.requestAnimationFrame(() => {
       panel.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+  }
+}
+
+function renderQemHeatmap(report) {
+  if (!report) {
+    lastQemHeatmapKey = null;
+    return;
+  }
+  const isFeature = qemViewMode === "feature";
+  const stats = isFeature ? (report.feature_cost_statistics || {}) : (report.cost_statistics || {});
+  const boundary = isFeature
+    ? (report.feature_boundary_statistics || {})
+    : (report.boundary_statistics || {});
+  const boundaryStats = boundary.cost_statistics || {};
+  const visualization = report.visualization || {};
+  const imageUrl = isFeature
+    ? (heatmapInverted ? report.feature_heatmap_inverse_png_url : report.feature_heatmap_png_url)
+    : (heatmapInverted ? report.heatmap_inverse_png_url : report.heatmap_png_url);
+  const objectStats = isFeature
+    ? (report.feature_object_statistics || [])
+    : (report.object_statistics || []);
+  const highEdges = isFeature
+    ? (report.feature_top_50_highest_cost_edges || [])
+    : (report.top_50_highest_cost_edges || []);
+  const lowEdges = isFeature
+    ? (report.feature_top_50_lowest_cost_edges || [])
+    : (report.top_50_lowest_cost_edges || []);
+  $("classicQemBtn").classList.toggle("active", !isFeature);
+  $("featureQemBtn").classList.toggle("active", isFeature);
+  $("qemHeatmapImage").innerHTML = previewImageMarkup(
+    imageUrl,
+    isFeature ? "Feature-aware QEM edge cost heatmap" : "Classic QEM edge cost heatmap",
+  );
+  $("qemStats").innerHTML = [
+    ["Mode", isFeature ? "Feature-aware" : "Classic"],
+    ["Vertices", formatNumber(report.vertex_count)],
+    ["Faces", formatNumber(report.face_count)],
+    ["Triangles", `${formatNumber(report.triangle_count)} tris`],
+    ["Edges", formatNumber(report.edge_count)],
+    ["Median Cost", formatCost(stats.median)],
+    ["P90 / P99", `${formatCost(stats.p90)} / ${formatCost(stats.p99)}`],
+    ["Max Cost", formatCost(stats.max)],
+    ["Boundary P90+", `${formatNumber(boundary.boundary_p90_plus_edge_count)} / ${formatNumber(boundary.boundary_edge_count)}`],
+    ["Fallback Solves", formatNumber(report.singular_fallback_edges)],
+  ]
+    .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+    .join("");
+  $("qemNotice").innerHTML = `
+    <strong>Diagnostic only</strong>
+    <span>${escapeHtml(isFeature ? "Feature-aware cost adds boundary and sharp-normal penalties to Classic QEM." : "Classic QEM uses only vertex-to-plane quadric error.")} No edges are collapsed and the source model is not modified.</span>
+    <small>Colors use ${escapeHtml(visualization.display_heat_normalization || "percentile_rank")} display scaling${heatmapInverted ? " with inverted values" : ""}. Boundary median: ${escapeHtml(formatCost(boundaryStats.median))}.</small>
+  `;
+  $("qemObjectStats").innerHTML = objectStats
+    .slice(0, 24)
+    .map((item) => {
+      const itemStats = item.cost_statistics || {};
+      return `
+        <div class="dense-row qem-row">
+          <strong>${escapeHtml(item.object_name || "-")}</strong>
+          <span>${formatNumber(item.edge_count)} edges</span>
+          <span>${formatNumber(item.global_p90_plus_edge_count)} p90+</span>
+          <span>med ${formatCost(itemStats.median)}</span>
+          <span>p99 ${formatCost(itemStats.p99)}</span>
+        </div>
+      `;
+    })
+    .join("");
+  $("qemHighEdges").innerHTML = highEdges
+    .slice(0, 18)
+    .map((edge) => `
+      <div class="dense-row qem-row">
+        <strong>${escapeHtml(edge.object_name || "-")} #${formatNumber(edge.edge_id)}</strong>
+        <span>${formatNumber(edge.v0)}-${formatNumber(edge.v1)}</span>
+        <span>${formatCost(edge.cost)}</span>
+        <span>${isFeature ? `+${formatCost((edge.boundary_penalty || 0) + (edge.normal_penalty || 0))}` : (edge.is_boundary ? "Boundary" : "Interior")}</span>
+        <span>${escapeHtml(edge.placement_source || "-")}</span>
+      </div>
+    `)
+    .join("");
+  $("qemLowEdges").innerHTML = lowEdges
+    .slice(0, 18)
+    .map((edge) => `
+      <div class="dense-row qem-row">
+        <strong>${escapeHtml(edge.object_name || "-")} #${formatNumber(edge.edge_id)}</strong>
+        <span>${formatNumber(edge.v0)}-${formatNumber(edge.v1)}</span>
+        <span>${formatCost(edge.cost)}</span>
+        <span>${edge.is_boundary ? "Boundary" : "Interior"}</span>
+        <span>${escapeHtml(edge.placement_source || "-")}</span>
+      </div>
+    `)
+    .join("");
+  const reportKey = `${qemViewMode}:${imageUrl || ""}:${report.edge_count || ""}:${stats.max || ""}`;
+  if (lastQemHeatmapKey !== reportKey) {
+    lastQemHeatmapKey = reportKey;
+    if (!pendingHeatmapDiagnostics) {
+      window.requestAnimationFrame(openScaleModal);
+    }
+  }
+}
+
+function percent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${(number * 100).toFixed(1)}%`;
+}
+
+function renderScaleAnalysis(report) {
+  if (!report && !state.qemHeatmap) {
+    lastScaleAnalysisKey = null;
+    return;
+  }
+  const hasScaleReport = Boolean(report && report.object_name);
+  report = report || {};
+  const persistenceStats = report.persistence_stats || {};
+  const tinyStats = report.tiny_detail_stats || {};
+  const curvatureStats = report.mean_curvature_stats || {};
+  const centerStats = report.center_surround_stats || {};
+  const interpretation = report.interpretation || {};
+  const qem = state.qemHeatmap || {};
+  $("diagClassicQemImage").innerHTML = previewImageMarkup(
+    heatmapInverted ? qem.heatmap_inverse_png_url : qem.heatmap_png_url,
+    "Classic QEM cost heatmap",
+  );
+  $("diagFeatureQemImage").innerHTML = previewImageMarkup(
+    heatmapInverted ? qem.feature_heatmap_inverse_png_url : qem.feature_heatmap_png_url,
+    "Feature-aware QEM cost heatmap",
+  );
+  $("meanCurvatureImage").innerHTML = hasScaleReport
+    ? previewImageMarkup(
+        heatmapInverted ? report.mean_curvature_heatmap_inverse_url : report.mean_curvature_heatmap_url,
+        "Normal variation heatmap",
+      )
+    : emptyPreviewMarkup("Scale Analysis has not been generated yet");
+  $("centerSurroundImage").innerHTML = hasScaleReport
+    ? previewImageMarkup(
+        heatmapInverted ? report.center_surround_heatmap_inverse_url : report.center_surround_heatmap_url,
+        "Center-surround heatmap",
+      )
+    : emptyPreviewMarkup("Scale Analysis has not been generated yet");
+  $("scalePersistenceImage").innerHTML = hasScaleReport
+    ? previewImageMarkup(
+        heatmapInverted ? report.scale_persistence_heatmap_inverse_url : report.scale_persistence_heatmap_url,
+        "Scale persistence heatmap",
+      )
+    : emptyPreviewMarkup("Scale Analysis has not been generated yet");
+  $("tinyDetailImage").innerHTML = hasScaleReport
+    ? previewImageMarkup(
+        heatmapInverted ? report.tiny_detail_heatmap_inverse_url : report.tiny_detail_heatmap_url,
+        "Tiny detail heatmap",
+      )
+    : emptyPreviewMarkup("Scale Analysis has not been generated yet");
+  $("scaleStats").innerHTML = [
+    ["Object", report.object_name || "-"],
+    ["Vertices", formatNumber(report.vertex_count)],
+    ["Triangles", `${formatNumber(report.triangle_count)} tris`],
+    ["BBox diagonal", formatFloat(report.bbox_diagonal, 4)],
+    ["Normal variation mean", formatFloat(curvatureStats.mean, 3)],
+    ["Center-surround p75", formatFloat(centerStats.p75, 3)],
+    ["Persistence mean", formatFloat(persistenceStats.mean, 3)],
+    ["Persistence p75", formatFloat(persistenceStats.p75, 3)],
+    ["Tiny detail mean", formatFloat(tinyStats.mean, 3)],
+    ["Tiny detail p75", formatFloat(tinyStats.p75, 3)],
+    ["Low persistence", percent(interpretation.low_persistence_ratio)],
+    ["High persistence", percent(interpretation.high_persistence_ratio)],
+    ["Tiny detail", percent(interpretation.tiny_detail_ratio)],
+    ["Scales", (report.scales || []).map((value) => formatFloat(value, 4)).join(", ")],
+  ]
+    .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+    .join("");
+  $("scaleNotice").innerHTML = `
+    <strong>Analysis only</strong>
+    <span>Center-surround uses S(v,sigma)=abs(G(H,sigma)-G(H,2sigma)); in V0, H is adjacent face-normal variation at vertices, not QEM edge cost.</span>
+    <span>QEM rows are edge-cost diagnostics; Scale rows are vertex scores projected onto mesh edges with neutral surface shading.</span>
+    <span>${heatmapInverted ? "Invert mode is on: blue/red meanings are numerically swapped for every displayed heatmap." : "Normal mode is on: red means higher score or cost for every displayed heatmap."}</span>
+    <span>Blue persistence means the signal appears only at small scale; red persistence means it survives across more scales.</span>
+    <span>Red tiny-detail regions are candidates for later simplification, but no mesh reduction is performed here.</span>
+  `;
+  const reportKey = `${heatmapInverted}:${report.mean_curvature_heatmap_url || ""}:${report.center_surround_heatmap_url || ""}:${report.scale_persistence_heatmap_url || ""}:${report.tiny_detail_heatmap_url || ""}:${report.vertex_count || ""}:${tinyStats.p75 || ""}:${qem.heatmap_png_url || ""}`;
+  if (hasScaleReport && lastScaleAnalysisKey !== reportKey) {
+    lastScaleAnalysisKey = reportKey;
+    window.requestAnimationFrame(openScaleModal);
+  }
+  renderAFCostCandidates(state.afcostCandidates);
+}
+
+function renderAFCostCandidates(report) {
+  const notice = $("afcostNotice");
+  const grid = $("afcostGrid");
+  if (!report || !(report.candidates || []).length) {
+    notice.innerHTML = `
+      <strong>Not generated yet</strong>
+      <span>Generate combo scores to compare AFCost_00 through AFCost_11.</span>
+    `;
+    grid.innerHTML = "";
+    return;
+  }
+  const errors = report.errors || [];
+  notice.classList.toggle("error", Boolean(errors.length));
+  notice.innerHTML = `
+    <strong>${errors.length ? "Generated with issues" : "Combination scores ready"}</strong>
+    <span>lambda=${escapeHtml(formatFloat(report.lambda, 3))}, eps=${escapeHtml(formatFloat(report.eps, 6))}, edge projection: P(e)=max(Pu,Pv), D(e)=max(Du,Dv).</span>
+    ${errors.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}
+  `;
+  grid.innerHTML = (report.candidates || [])
+    .map((candidate) => `
+      <div class="afcost-card">
+        <h4>${escapeHtml(candidate.name || "-")}</h4>
+        <small>${escapeHtml(candidate.formula || "")}</small>
+        <div class="geometry-preview">${previewImageMarkup(candidate.heatmap_png_url, `${candidate.name || "AFCost"} heatmap`)}</div>
+        <div class="scale-colorbar"><span>Low score</span><i></i><span>High score</span></div>
+      </div>
+    `)
+    .join("");
+  const reportKey = `${report.candidate_count || ""}:${report.edge_count || ""}:${(report.candidates || []).map((candidate) => candidate.heatmap_png_url || "").join("|")}`;
+  if (lastAFCostCandidateKey !== reportKey) {
+    lastAFCostCandidateKey = reportKey;
+    window.requestAnimationFrame(openAFCostModal);
   }
 }
 
@@ -1120,19 +1258,38 @@ function bindUi() {
   $("zoomSlider").addEventListener("input", () => {
     viewportZoom = Number($("zoomSlider").value) / 100;
   });
-  $("analyzeBtn").addEventListener("click", () => {
-    appendLog("Refresh Model Info clicked.");
-    bridge.analyze();
-  });
   $("workflowActionBtn").addEventListener("click", () => {
     runWorkflowAction();
+  });
+  $("invertHeatmapsToggle").addEventListener("change", () => {
+    heatmapInverted = $("invertHeatmapsToggle").checked;
+    appendLog(heatmapInverted ? "Heatmaps inverted." : "Heatmaps restored to normal.");
+    renderQemHeatmap(state.qemHeatmap);
+    renderScaleAnalysis(state.scaleAnalysis);
+  });
+  $("exportHeatmapComparisonBtn").addEventListener("click", () => {
+    exportHeatmapComparison();
+  });
+  $("generateAFCostBtn").addEventListener("click", () => {
+    appendLog("Generate Combo Scores clicked.");
+    bridge.generateAFCostCandidates();
+  });
+  $("openAFCostBtn").addEventListener("click", () => {
+    renderAFCostCandidates(state.afcostCandidates);
+    openAFCostModal();
+  });
+  $("exportAFCostBtn").addEventListener("click", () => {
+    exportAFCostCandidates();
+  });
+  $("closeAFCostBtn").addEventListener("click", () => {
+    closeAFCostModal();
+  });
+  $("afcostModal").addEventListener("click", (event) => {
+    if (event.target === $("afcostModal")) closeAFCostModal();
   });
   $("simplificationReportBtn").addEventListener("click", () => {
     appendLog("Compare Last Reduction clicked.");
     bridge.generateSimplificationReport();
-  });
-  $("summaryOptimizeBtn").addEventListener("click", () => {
-    openPipelineReviewModal();
   });
   $("applyPreviewBtn").addEventListener("click", () => {
     appendLog("Apply Current Preview clicked.");
@@ -1148,15 +1305,6 @@ function bindUi() {
         : "Build clicked without candidate optimization.",
     );
     runWithOptionalPreprocess("build");
-  });
-  $("openReportBtn").addEventListener("click", () => {
-    openReportModal();
-  });
-  $("closeReportBtn").addEventListener("click", () => {
-    closeReportModal();
-  });
-  $("reportModal").addEventListener("click", (event) => {
-    if (event.target === $("reportModal")) closeReportModal();
   });
   $("closePipelineBtn").addEventListener("click", () => {
     closePipelineReviewModal();
@@ -1178,6 +1326,26 @@ function bindUi() {
   });
   $("pipelineModal").addEventListener("click", (event) => {
     if (event.target === $("pipelineModal")) closePipelineReviewModal();
+  });
+  $("closeQemBtn").addEventListener("click", () => {
+    closeQemModal();
+  });
+  $("classicQemBtn").addEventListener("click", () => {
+    qemViewMode = "classic";
+    renderQemHeatmap(state.qemHeatmap);
+  });
+  $("featureQemBtn").addEventListener("click", () => {
+    qemViewMode = "feature";
+    renderQemHeatmap(state.qemHeatmap);
+  });
+  $("qemModal").addEventListener("click", (event) => {
+    if (event.target === $("qemModal")) closeQemModal();
+  });
+  $("closeScaleBtn").addEventListener("click", () => {
+    closeScaleModal();
+  });
+  $("scaleModal").addEventListener("click", (event) => {
+    if (event.target === $("scaleModal")) closeScaleModal();
   });
   $("autoPreprocessToggle").addEventListener("change", () => {
     appendLog($("autoPreprocessToggle").checked ? "Auto cleanup enabled." : "Auto cleanup disabled.");

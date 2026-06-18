@@ -55,7 +55,7 @@
           <div class="optimize-controls" id="optimizeControls">
             <div class="setting-label">
               <strong>Optimization target</strong>
-              <small>Used after current model analysis has identified protect and cleanup candidates.</small>
+              <small>Optional triangle budget for future reduction and build workflows.</small>
             </div>
             <div class="target-row">
               <input id="targetTriangles" type="number" min="100" step="500" value="3000">
@@ -74,14 +74,13 @@
             <small id="outputFolderSource">-</small>
           </div>
           <div class="primary-actions">
-            <button id="workflowActionBtn">Analyze Stage 1</button>
+            <button id="workflowActionBtn">Heatmap Diagnostics</button>
             <button class="build" id="buildBtn">Build Asset</button>
           </div>
           <div class="build-summary" id="buildSummary" hidden></div>
           <details class="advanced-tools">
             <summary>Diagnostics and setup</summary>
             <div class="button-grid">
-              <button class="secondary" id="analyzeBtn">Refresh Model Info</button>
               <button class="secondary" id="simplificationReportBtn">Compare Last Reduction</button>
               <button class="secondary" id="applyPreviewBtn">Use Preview Target</button>
               <button class="secondary" id="browseOutputBtn">Change Output Folder</button>
@@ -119,73 +118,6 @@
         </div>
       </section>
 
-      <section class="analysis-summary-panel" id="analysisSummaryPanel" hidden>
-        <div class="analysis-summary-header">
-          <div>
-            <p class="eyebrow" id="analysisSummaryEyebrow">Analysis Ready</p>
-            <h3 id="analysisSummaryTitle">Candidate-guided optimization can run now</h3>
-          </div>
-          <div class="analysis-summary-actions">
-            <button class="secondary" id="openReportBtn">Open Report</button>
-            <button id="summaryOptimizeBtn">Review Stage 1</button>
-          </div>
-        </div>
-        <div class="candidate-summary" id="candidateSummary"></div>
-      </section>
-
-      <div class="modal-backdrop" id="reportModal" hidden>
-        <section class="panel geometry-panel report-modal" id="geometryPanel" hidden>
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Current Model Analysis</p>
-              <h3>Optimization candidate report</h3>
-            </div>
-            <button class="secondary" id="closeReportBtn">Close</button>
-          </div>
-          <div class="report-complete" id="geometryCompleteNotice" hidden></div>
-          <div class="geometry-layout">
-            <div class="geometry-preview" id="geometryHeatmap">
-              <div class="empty-preview">Heatmap will appear here</div>
-            </div>
-            <div class="geometry-stats">
-              <div class="summary-list">
-                <div><span>Vertices</span><strong id="geoVertices">-</strong></div>
-                <div><span>Edges</span><strong id="geoEdges">-</strong></div>
-                <div><span>Faces</span><strong id="geoFaces">-</strong></div>
-                <div><span>Triangles</span><strong id="geoTriangles">-</strong></div>
-                <div><span>Bounding Box</span><strong id="geoBounds">-</strong></div>
-                <div><span>Planar Regions</span><strong id="geoPlanar">-</strong></div>
-                <div><span>Boundary Edges</span><strong id="geoBoundary">-</strong></div>
-                <div><span>Silhouette Protected</span><strong id="geoSilhouette">-</strong></div>
-                <div><span>Triangle Area</span><strong id="geoTriangleArea">-</strong></div>
-              </div>
-            </div>
-          </div>
-          <div class="geometry-columns">
-            <div>
-              <h4>Curvature</h4>
-              <div class="dense-table" id="curvatureList"></div>
-            </div>
-            <div>
-              <h4>Top Dense Regions</h4>
-              <div class="dense-table" id="denseRegionList"></div>
-            </div>
-          </div>
-          <div class="geometry-columns single">
-            <div>
-              <h4>Silhouette Protected Regions</h4>
-              <div class="dense-table" id="silhouetteRegionList"></div>
-            </div>
-          </div>
-          <div class="geometry-columns single">
-            <div>
-              <h4>Optimization Candidates</h4>
-              <div class="dense-table" id="optimizationCandidateList"></div>
-            </div>
-          </div>
-        </section>
-      </div>
-
       <div class="modal-backdrop" id="pipelineModal" hidden>
         <section class="panel report-modal pipeline-review-panel">
           <div class="panel-header">
@@ -202,16 +134,153 @@
             <div class="pipeline-review-copy">
               <div class="summary-list" id="pipelineReviewStats"></div>
               <div class="result-notice" id="pipelineReviewNotice"></div>
-              <div class="stage-debug-panel" id="stageDebugPanel" hidden>
-                <div class="stage-debug-tabs" id="stageDebugTabs"></div>
-                <div class="stage-debug-meta" id="stageDebugMeta"></div>
-              </div>
               <div class="primary-actions">
                 <button id="applyPipelineStageBtn">Apply This Stage</button>
                 <button class="secondary" id="stopPipelineBtn">Stop Here</button>
               </div>
             </div>
           </div>
+        </section>
+      </div>
+
+      <div class="modal-backdrop" id="qemModal" hidden>
+        <section class="panel report-modal qem-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">QEM Edge Cost</p>
+              <h3>Collapse cost heatmap</h3>
+            </div>
+            <div class="qem-header-actions">
+              <div class="qem-mode-toggle">
+                <button class="secondary active" id="classicQemBtn">Classic QEM</button>
+                <button class="secondary" id="featureQemBtn">Feature-Aware QEM</button>
+              </div>
+              <button class="secondary" id="closeQemBtn">Close</button>
+            </div>
+          </div>
+          <div class="qem-layout">
+            <div>
+              <div class="geometry-preview qem-preview" id="qemHeatmapImage">
+                <div class="empty-preview">QEM heatmap will appear here</div>
+              </div>
+              <div class="qem-legend">
+                <span class="qem-blue">Low cost</span>
+                <span class="qem-cyan">Cyan</span>
+                <span class="qem-green">Medium</span>
+                <span class="qem-yellow">High</span>
+                <span class="qem-red">Highest</span>
+              </div>
+              <div class="result-notice qem-note" id="qemNotice"></div>
+            </div>
+            <div class="qem-sidebar">
+              <div class="summary-list qem-stats" id="qemStats"></div>
+              <div>
+                <h4>Object Cost Summary</h4>
+                <div class="dense-table qem-table" id="qemObjectStats"></div>
+              </div>
+            </div>
+          </div>
+          <div class="geometry-columns">
+            <div>
+              <h4>Highest Cost Edges</h4>
+              <div class="dense-table qem-table" id="qemHighEdges"></div>
+            </div>
+            <div>
+              <h4>Lowest Cost Edges</h4>
+              <div class="dense-table qem-table" id="qemLowEdges"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-backdrop" id="scaleModal" hidden>
+        <section class="panel report-modal scale-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Heatmap Diagnostics</p>
+              <h3>QEM cost vs scale-first importance</h3>
+            </div>
+            <div class="scale-header-actions">
+              <label class="heatmap-toggle">
+                <input id="invertHeatmapsToggle" type="checkbox">
+                <span>Invert heatmaps</span>
+              </label>
+              <button class="secondary" id="exportHeatmapComparisonBtn">Export Comparison</button>
+              <button class="secondary" id="generateAFCostBtn">Generate Combo Scores</button>
+              <button class="secondary" id="openAFCostBtn">Open Combo Scores</button>
+              <button class="secondary" id="closeScaleBtn">Close</button>
+            </div>
+          </div>
+          <div class="diagnostics-layout">
+            <div>
+              <h4>Classic QEM cost</h4>
+              <div class="geometry-preview diagnostics-preview" id="diagClassicQemImage">
+                <div class="empty-preview">Heatmap Diagnostics will generate QEM cost</div>
+              </div>
+              <div class="scale-colorbar"><span>Low cost</span><i></i><span>High cost</span></div>
+            </div>
+            <div>
+              <h4>Feature-Aware QEM cost</h4>
+              <div class="geometry-preview diagnostics-preview" id="diagFeatureQemImage">
+                <div class="empty-preview">Heatmap Diagnostics will generate Feature-Aware QEM cost</div>
+              </div>
+              <div class="scale-colorbar"><span>Low cost</span><i></i><span>High cost</span></div>
+            </div>
+          </div>
+          <div class="scale-layout">
+            <div>
+              <h4>Normal variation H</h4>
+              <div class="geometry-preview scale-preview" id="meanCurvatureImage">
+                <div class="empty-preview">Normal variation heatmap will appear here</div>
+              </div>
+              <div class="scale-colorbar"><span>Low variation</span><i></i><span>High variation</span></div>
+            </div>
+            <div>
+              <h4>Center-surround response</h4>
+              <div class="geometry-preview scale-preview" id="centerSurroundImage">
+                <div class="empty-preview">Center-surround heatmap will appear here</div>
+              </div>
+              <div class="scale-colorbar"><span>Similar to surround</span><i></i><span>Different from surround</span></div>
+            </div>
+            <div>
+              <h4>Scale persistence</h4>
+              <div class="geometry-preview scale-preview" id="scalePersistenceImage">
+                <div class="empty-preview">Scale persistence heatmap will appear here</div>
+              </div>
+              <div class="scale-colorbar"><span>Low persistence</span><i></i><span>High persistence</span></div>
+            </div>
+            <div>
+              <h4>Tiny detail score</h4>
+              <div class="geometry-preview scale-preview" id="tinyDetailImage">
+                <div class="empty-preview">Tiny detail heatmap will appear here</div>
+              </div>
+              <div class="scale-colorbar"><span>Not tiny detail</span><i></i><span>Likely removable</span></div>
+            </div>
+          </div>
+          <div class="scale-summary">
+            <div class="summary-list scale-stats" id="scaleStats"></div>
+            <div class="result-notice scale-note" id="scaleNotice"></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-backdrop" id="afcostModal" hidden>
+        <section class="panel report-modal afcost-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Combination Candidates</p>
+              <h3>QEM cost modulated by scale scores</h3>
+            </div>
+            <div class="scale-header-actions">
+              <button class="secondary" id="exportAFCostBtn">Export Combo</button>
+              <button class="secondary" id="closeAFCostBtn">Close</button>
+            </div>
+          </div>
+          <div class="result-notice scale-note" id="afcostNotice">
+            <strong>Not generated yet</strong>
+            <span>Generate combo scores to compare AFCost_00 through AFCost_11.</span>
+          </div>
+          <div class="afcost-grid" id="afcostGrid"></div>
         </section>
       </div>
 

@@ -27,6 +27,8 @@ occamforge-real-preview = "assetforge.app.real_preview_cli:main"
 occamforge-preprocess = "assetforge.app.preprocess_cli:main"
 occamforge-geometry-report = "assetforge.app.geometry_report_cli:main"
 occamforge-simplification-report = "assetforge.app.simplification_report_cli:main"
+occamforge-qem-heatmap = "assetforge.app.qem_heatmap_cli:main"
+occamforge-scale-analysis = "assetforge.app.scale_analysis_cli:main"
 assetforge = "assetforge.app.main:main"
 assetforge-analyze = "assetforge.app.cli:main"
 assetforge-optimize = "assetforge.app.optimize_cli:main"
@@ -38,6 +40,8 @@ assetforge-real-preview = "assetforge.app.real_preview_cli:main"
 assetforge-preprocess = "assetforge.app.preprocess_cli:main"
 assetforge-geometry-report = "assetforge.app.geometry_report_cli:main"
 assetforge-simplification-report = "assetforge.app.simplification_report_cli:main"
+assetforge-qem-heatmap = "assetforge.app.qem_heatmap_cli:main"
+assetforge-scale-analysis = "assetforge.app.scale_analysis_cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -46,6 +50,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/assetforge"]
 artifacts = [
+    "src/assetforge/analysis/*.py",
     "src/assetforge/gui/web/*.html",
     "src/assetforge/gui/web/*.css",
     "src/assetforge/gui/web/*.js",

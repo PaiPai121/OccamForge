@@ -18,6 +18,9 @@ def preprocess_report_from_dict(payload: dict[str, Any]) -> PreprocessReport:
         limited_dissolve_angle_degrees=float(
             payload.get("limited_dissolve_angle_degrees", 0.0)
         ),
+        original_object_count=int(payload.get("original_object_count", 0)),
+        preprocessed_object_count=int(payload.get("preprocessed_object_count", 0)),
+        joined_mesh_objects=bool(payload.get("joined_mesh_objects", False)),
         warnings=tuple(str(item) for item in payload.get("warnings", [])),
         errors=tuple(str(item) for item in payload.get("errors", [])),
     )
@@ -33,6 +36,9 @@ def preprocess_report_to_dict(report: PreprocessReport) -> dict[str, Any]:
         "removed_triangle_count": report.removed_triangle_count,
         "reduction_percentage": report.reduction_percentage,
         "limited_dissolve_angle_degrees": report.limited_dissolve_angle_degrees,
+        "original_object_count": report.original_object_count,
+        "preprocessed_object_count": report.preprocessed_object_count,
+        "joined_mesh_objects": report.joined_mesh_objects,
         "warnings": list(report.warnings),
         "errors": list(report.errors),
     }

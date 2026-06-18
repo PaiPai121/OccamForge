@@ -26,10 +26,13 @@ from assetforge.models.real_optimization_preview_dto import real_preview_report_
 from assetforge.models.simplification_report_dto import simplification_report_from_dict
 from assetforge.models.validation_dto import validation_report_from_dict
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuilder
+from assetforge.services.afcost_candidates import AFCostCandidateGenerator
 from assetforge.services.geometry_report import GeometryReporter
 from assetforge.services.model_preview import ModelPreviewGenerator
 from assetforge.services.preprocess import AssetPreprocessor
+from assetforge.services.qem_heatmap import QemHeatmapGenerator
 from assetforge.services.real_optimization_preview import RealOptimizationPreviewer
+from assetforge.services.scale_analysis import ScaleAnalysisGenerator
 from assetforge.services.simplification_report import SimplificationReporter
 from assetforge.services.vehicle_analysis import VehicleAnalyzer
 from assetforge.services.vehicle_export import VehicleExporter
@@ -49,6 +52,9 @@ class BlenderVehicleService(
     GeometryReporter,
     SimplificationReporter,
     AssetPreprocessor,
+    AFCostCandidateGenerator,
+    QemHeatmapGenerator,
+    ScaleAnalysisGenerator,
 ):
     """Production adapter for vehicle operations implemented in Blender."""
 
@@ -319,3 +325,51 @@ class BlenderVehicleService(
             ],
         )
         return simplification_report_from_dict(payload)
+
+    def generate_qem_heatmap(
+        self,
+        source_file: Path,
+        output_directory: Path,
+    ) -> dict[str, object]:
+        script_path = Path(__file__).parent / "scripts" / "generate_qem_heatmap.py"
+        return self._executor.run_script(
+            script_path,
+            [
+                "--source-file",
+                str(source_file),
+                "--output-directory",
+                str(output_directory),
+            ],
+        )
+
+    def generate_scale_analysis(
+        self,
+        source_file: Path,
+        output_directory: Path,
+    ) -> dict[str, object]:
+        script_path = Path(__file__).parent / "scripts" / "generate_scale_analysis.py"
+        return self._executor.run_script(
+            script_path,
+            [
+                "--source-file",
+                str(source_file),
+                "--output-directory",
+                str(output_directory),
+            ],
+        )
+
+    def generate_afcost_candidates(
+        self,
+        source_file: Path,
+        output_directory: Path,
+    ) -> dict[str, object]:
+        script_path = Path(__file__).parent / "scripts" / "generate_afcost_candidates.py"
+        return self._executor.run_script(
+            script_path,
+            [
+                "--source-file",
+                str(source_file),
+                "--output-directory",
+                str(output_directory),
+            ],
+        )

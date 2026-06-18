@@ -42,12 +42,31 @@ def _safe_limited_dissolve(mesh_objects: list[bpy.types.Object], angle_degrees: 
         obj.select_set(False)
 
 
+def _join_mesh_objects(mesh_objects: list[bpy.types.Object], object_name: str) -> bpy.types.Object | None:
+    if not mesh_objects:
+        return None
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in mesh_objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = mesh_objects[0]
+    bpy.ops.object.join()
+    joined = bpy.context.view_layer.objects.active
+    if joined is None or joined.type != "MESH":
+        return None
+    joined.name = object_name
+    joined.data.name = f"{object_name}_Mesh"
+    return joined
+
+
 def _report(
     source: Path,
     preprocessed: Path,
     report_file: Path,
     original_triangles: int,
     preprocessed_triangles: int,
+    original_object_count: int,
+    preprocessed_object_count: int,
     angle_degrees: float,
     warnings: list[str],
     errors: list[str],
@@ -62,6 +81,9 @@ def _report(
         "preprocessed_triangle_count": preprocessed_triangles,
         "removed_triangle_count": removed,
         "reduction_percentage": reduction,
+        "original_object_count": original_object_count,
+        "preprocessed_object_count": preprocessed_object_count,
+        "joined_mesh_objects": original_object_count > 1 and preprocessed_object_count == 1,
         "limited_dissolve_angle_degrees": angle_degrees,
         "warnings": warnings,
         "errors": errors,
@@ -76,7 +98,7 @@ def preprocess(args: argparse.Namespace) -> dict[str, Any]:
     errors: list[str] = []
 
     if not source.exists():
-        report = _report(source, output_blend, report_file, 0, 0, args.angle_degrees, [], [
+        report = _report(source, output_blend, report_file, 0, 0, 0, 0, args.angle_degrees, [], [
             f"Blend file does not exist: {source}"
         ])
         report_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -85,14 +107,21 @@ def preprocess(args: argparse.Namespace) -> dict[str, Any]:
     shutil.copy2(source, output_blend)
     bpy.ops.wm.open_mainfile(filepath=str(output_blend))
     mesh_objects = _mesh_objects()
+    original_object_count = len(mesh_objects)
     original_triangles = _count_scene_triangles()
 
     if not mesh_objects:
         errors.append("No mesh objects were found.")
     else:
         _safe_limited_dissolve(mesh_objects, args.angle_degrees)
+        joined = _join_mesh_objects(_mesh_objects(), f"{source.stem}_Model")
+        if joined is None:
+            errors.append("Failed to join mesh objects into one preprocessed model.")
+        elif original_object_count > 1:
+            warnings.append(f"Joined {original_object_count} mesh objects into one preprocessed model.")
 
     preprocessed_triangles = _count_scene_triangles()
+    preprocessed_object_count = len(_mesh_objects())
     if preprocessed_triangles >= original_triangles:
         warnings.append("Safe preprocess did not remove any triangles.")
 
@@ -105,6 +134,8 @@ def preprocess(args: argparse.Namespace) -> dict[str, Any]:
         report_file,
         original_triangles,
         preprocessed_triangles,
+        original_object_count,
+        preprocessed_object_count,
         args.angle_degrees,
         warnings,
         errors,
