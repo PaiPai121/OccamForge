@@ -24,6 +24,7 @@ def main() -> int:
         services.cities_skylines_build,
         services.preprocess,
         services.real_optimization_preview,
+        services.local_simplification,
         services.model_preview,
         services.geometry_report,
         services.simplification_report,

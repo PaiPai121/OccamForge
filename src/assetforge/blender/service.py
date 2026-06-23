@@ -28,6 +28,7 @@ from assetforge.models.validation_dto import validation_report_from_dict
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuilder
 from assetforge.services.afcost_candidates import AFCostCandidateGenerator
 from assetforge.services.geometry_report import GeometryReporter
+from assetforge.services.local_simplification import LocalSimplifier
 from assetforge.services.model_preview import ModelPreviewGenerator
 from assetforge.services.preprocess import AssetPreprocessor
 from assetforge.services.qem_heatmap import QemHeatmapGenerator
@@ -55,6 +56,7 @@ class BlenderVehicleService(
     AFCostCandidateGenerator,
     QemHeatmapGenerator,
     ScaleAnalysisGenerator,
+    LocalSimplifier,
 ):
     """Production adapter for vehicle operations implemented in Blender."""
 
@@ -373,3 +375,33 @@ class BlenderVehicleService(
                 str(output_directory),
             ],
         )
+
+    def generate_local_simplification_preview(
+        self,
+        blend_file: Path,
+        profile: AssetProfile,
+        target_triangle_count: int,
+        output_directory: Path,
+        combo_candidate: str = "auto",
+    ) -> RealOptimizationPreviewReport:
+        script_path = Path(__file__).parent / "scripts" / "generate_local_simplification_preview.py"
+        payload = self._executor.run_script(
+            script_path,
+            [
+                "--blend-file",
+                str(blend_file),
+                "--profile-id",
+                profile.profile_id,
+                "--target-triangles",
+                str(target_triangle_count),
+                "--output-directory",
+                str(output_directory),
+                "--warning-triangles",
+                str(profile.warning_triangle_count),
+                "--critical-triangles",
+                str(profile.critical_triangle_count),
+                "--combo-candidate",
+                combo_candidate,
+            ],
+        )
+        return real_preview_report_from_dict(payload)

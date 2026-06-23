@@ -20,6 +20,8 @@ try {
         --windowed `
         --name AssetForge `
         --paths src `
+        --collect-submodules assetforge.analysis `
+        --add-data "src\assetforge\analysis;assetforge\analysis" `
         --add-data "src\assetforge\gui\web;assetforge\gui\web" `
         --add-data "src\assetforge\blender\scripts;assetforge\blender\scripts" `
         src\assetforge\app\main.py

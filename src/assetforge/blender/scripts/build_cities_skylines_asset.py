@@ -398,7 +398,57 @@ def _prepare_materials_for_bake(objects: list[bpy.types.Object], image: bpy.type
             nodes.active = tex_node
 
 
+def _unique_uv_name(mesh: bpy.types.Mesh, prefix: str) -> str:
+    existing = {layer.name for layer in mesh.uv_layers}
+    if prefix not in existing:
+        return prefix
+    index = 1
+    while f"{prefix}_{index}" in existing:
+        index += 1
+    return f"{prefix}_{index}"
+
+
+def _uv_layer_index(mesh: bpy.types.Mesh, layer_name: str) -> int:
+    for index, layer in enumerate(mesh.uv_layers):
+        if layer.name == layer_name:
+            return index
+    return max(0, len(mesh.uv_layers) - 1)
+
+
+def _preserve_source_texture_uvs(objects: list[bpy.types.Object]) -> None:
+    for obj in objects:
+        mesh = obj.data
+        if not mesh.uv_layers or mesh.uv_layers.active is None:
+            continue
+        source_uv = mesh.uv_layers.new(name=_unique_uv_name(mesh, "AssetForge_SourceUV"), do_init=True)
+        source_uv_name = source_uv.name
+        for material in mesh.materials:
+            if material is None or not material.use_nodes or material.node_tree is None:
+                continue
+            nodes = material.node_tree.nodes
+            links = material.node_tree.links
+            for node in nodes:
+                if node.type != "TEX_IMAGE":
+                    continue
+                vector_input = node.inputs.get("Vector")
+                if vector_input is None or vector_input.is_linked:
+                    continue
+                uv_node = nodes.new(type="ShaderNodeUVMap")
+                uv_node.uv_map = source_uv_name
+                links.new(uv_node.outputs["UV"], vector_input)
+
+
+def _ensure_bake_uvs(objects: list[bpy.types.Object]) -> None:
+    for obj in objects:
+        mesh = obj.data
+        bake_uv = mesh.uv_layers.new(name=_unique_uv_name(mesh, "AssetForge_BakeUV"))
+        bake_index = _uv_layer_index(mesh, bake_uv.name)
+        mesh.uv_layers.active_index = bake_index
+        mesh.uv_layers.render_index = bake_index
+
+
 def _smart_uv_project(objects: list[bpy.types.Object]) -> None:
+    _ensure_bake_uvs(objects)
     bpy.ops.object.select_all(action="DESELECT")
     for obj in objects:
         obj.select_set(True)
@@ -420,6 +470,7 @@ def _bake_diffuse_texture(objects: list[bpy.types.Object], texture_file: Path) -
         return
 
     image = bpy.data.images.new("AssetForge_CS_Diffuse", width=TEXTURE_SIZE, height=TEXTURE_SIZE)
+    _preserve_source_texture_uvs(bake_objects)
     _prepare_materials_for_bake(bake_objects, image)
     _smart_uv_project(bake_objects)
 

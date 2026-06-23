@@ -18,6 +18,7 @@ from assetforge.domain.validation import ValidationReport
 from assetforge.services.afcost_candidates import AFCostCandidateService
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
 from assetforge.services.geometry_report import GeometryReportService
+from assetforge.services.local_simplification import LocalSimplificationService
 from assetforge.services.model_preview import ModelPreviewService
 from assetforge.services.optimization_preview import OptimizationPreviewService
 from assetforge.services.preprocess import PreprocessService
@@ -225,6 +226,50 @@ class RealOptimizationPreviewWorker(QRunnable):
                 self._target_triangle_count,
                 self._output_directory,
                 self._pipeline_stage,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class LocalSimplificationWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class LocalSimplificationWorker(QRunnable):
+    def __init__(
+        self,
+        simplification_service: LocalSimplificationService,
+        blend_file: Path,
+        profile_id: str,
+        target_triangle_count: int,
+        output_directory: Path,
+        combo_candidate: str = "auto",
+    ) -> None:
+        super().__init__()
+        self._simplification_service = simplification_service
+        self._blend_file = blend_file
+        self._profile_id = profile_id
+        self._target_triangle_count = target_triangle_count
+        self._output_directory = output_directory
+        self._combo_candidate = combo_candidate
+        self.signals = LocalSimplificationWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Running local edge-collapse simplification...")
+            report: RealOptimizationPreviewReport = self._simplification_service.generate(
+                self._blend_file,
+                self._profile_id,
+                self._target_triangle_count,
+                self._output_directory,
+                self._combo_candidate,
             )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
             self.signals.failed.emit(str(exc))

@@ -558,6 +558,11 @@ button.chip {
   background: #1f252d;
 }
 
+.afcost-collapse-btn {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .pipeline-review-copy {
   display: grid;
   gap: 12px;

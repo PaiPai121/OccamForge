@@ -9,6 +9,7 @@ from assetforge.core.config import AssetForgeConfig, UserConfigStore
 from assetforge.services.blender_configuration import BlenderConfigurationService
 from assetforge.services.afcost_candidates import AFCostCandidateService
 from assetforge.services.geometry_report import GeometryReportService
+from assetforge.services.local_simplification import LocalSimplificationService
 from assetforge.services.model_preview import ModelPreviewService
 from assetforge.services.vehicle_analysis import VehicleAnalysisService
 from assetforge.services.vehicle_export import VehicleExportService
@@ -33,6 +34,7 @@ class AppServices:
     cities_skylines_build: CitiesSkylinesBuildService
     optimization_preview: OptimizationPreviewService
     real_optimization_preview: RealOptimizationPreviewService
+    local_simplification: LocalSimplificationService
     model_preview: ModelPreviewService
     geometry_report: GeometryReportService
     simplification_report: SimplificationReportService
@@ -56,6 +58,7 @@ def build_app_services(config: AssetForgeConfig) -> AppServices:
         cities_skylines_build=CitiesSkylinesBuildService(blender_service),
         optimization_preview=OptimizationPreviewService(),
         real_optimization_preview=RealOptimizationPreviewService(blender_service),
+        local_simplification=LocalSimplificationService(blender_service),
         model_preview=ModelPreviewService(blender_service),
         geometry_report=GeometryReportService(blender_service),
         simplification_report=SimplificationReportService(blender_service),

@@ -678,6 +678,8 @@ function runWithOptionalPreprocess(action, pipelineStage = 1) {
     bridge.generateQemHeatmap();
   } else if (action === "scale") {
     bridge.generateScaleAnalysis();
+  } else if (action === "afcost") {
+    bridge.generateAFCostCandidates();
   }
 }
 
@@ -704,6 +706,9 @@ function continueAfterPreprocessIfNeeded() {
   } else if (pending.action === "scale") {
     appendLog("Auto cleanup complete. Generating scale analysis from the joined model.");
     bridge.generateScaleAnalysis();
+  } else if (pending.action === "afcost") {
+    appendLog("Auto cleanup complete. Generating combo scores from the joined model.");
+    bridge.generateAFCostCandidates();
   }
 }
 
@@ -1196,9 +1201,18 @@ function renderAFCostCandidates(report) {
         <small>${escapeHtml(candidate.formula || "")}</small>
         <div class="geometry-preview">${previewImageMarkup(candidate.heatmap_png_url, `${candidate.name || "AFCost"} heatmap`)}</div>
         <div class="scale-colorbar"><span>Low score</span><i></i><span>High score</span></div>
+        <button class="secondary afcost-collapse-btn" data-afcost="${escapeHtml(candidate.name || "")}">Collapse with ${escapeHtml(candidate.name || "-")}</button>
       </div>
     `)
     .join("");
+  grid.querySelectorAll("[data-afcost]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const candidateName = button.dataset.afcost || "auto";
+      appendLog(`Collapse with ${candidateName} clicked at target ${formatNumber(targetValue())} tris.`);
+      bridge.generateLocalSimplification(targetValue(), candidateName);
+      closeAFCostModal();
+    });
+  });
   const reportKey = `${report.candidate_count || ""}:${report.edge_count || ""}:${(report.candidates || []).map((candidate) => candidate.heatmap_png_url || "").join("|")}`;
   if (lastAFCostCandidateKey !== reportKey) {
     lastAFCostCandidateKey = reportKey;

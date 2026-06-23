@@ -29,6 +29,7 @@ from assetforge.gui.workers import (
     AnalysisWorker,
     CitiesSkylinesBuildWorker,
     GeometryReportWorker,
+    LocalSimplificationWorker,
     ModelPreviewWorker,
     PreprocessWorker,
     QemHeatmapWorker,
@@ -41,6 +42,7 @@ from assetforge.services.afcost_candidates import AFCostCandidateService
 from assetforge.services.blender_configuration import BlenderConfigurationService
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
 from assetforge.services.geometry_report import GeometryReportService
+from assetforge.services.local_simplification import LocalSimplificationService
 from assetforge.services.model_preview import ModelPreviewService
 from assetforge.services.preprocess import PreprocessService
 from assetforge.services.qem_heatmap import QemHeatmapService
@@ -89,6 +91,7 @@ class AssetForgeBridge(QObject):
         build_service: CitiesSkylinesBuildService,
         preprocess_service: PreprocessService,
         real_preview_service: RealOptimizationPreviewService,
+        local_simplification_service: LocalSimplificationService,
         model_preview_service: ModelPreviewService,
         geometry_report_service: GeometryReportService,
         simplification_report_service: SimplificationReportService,
@@ -103,6 +106,7 @@ class AssetForgeBridge(QObject):
         self._build_service = build_service
         self._preprocess_service = preprocess_service
         self._real_preview_service = real_preview_service
+        self._local_simplification_service = local_simplification_service
         self._model_preview_service = model_preview_service
         self._geometry_report_service = geometry_report_service
         self._simplification_report_service = simplification_report_service
@@ -161,8 +165,17 @@ class AssetForgeBridge(QObject):
             os.getenv("ASSETFORGE_AUTOTEST_EXIT_ON_FIRST_FRAME") == "1"
             and "first viewport frame drawn" in message
         ):
-            self._debug_log("backend: autotest first frame observed; exiting")
-            QTimer.singleShot(0, QApplication.instance().quit)
+            self._debug_log("backend: autotest first frame observed; waiting for workers before exit")
+            QTimer.singleShot(0, self._quit_autotest_when_idle)
+
+    def _quit_autotest_when_idle(self) -> None:
+        if self._active_workers:
+            QTimer.singleShot(250, self._quit_autotest_when_idle)
+            return
+        self._debug_log("backend: autotest workers idle; exiting")
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     @Slot(str, result=str)
     def loadPreviewMesh(self, mesh_path_value: str) -> str:
@@ -607,6 +620,54 @@ class AssetForgeBridge(QObject):
         )
         worker.signals.started.connect(
             lambda: self._run_on_ui(lambda: self.logAdded.emit("Real preview started."))
+        )
+        worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
+        worker.signals.finished.connect(
+            lambda report: self._run_on_ui(lambda: self._real_preview_finished(report))
+        )
+        worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
+        self._start_worker(worker)
+
+    @Slot(int)
+    @Slot(int, str)
+    def generateLocalSimplification(self, target_triangles: int, combo_candidate: str = "auto") -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a .blend file before generating local simplification.")
+            return
+        if self._selected_file.suffix.lower() != ".blend":
+            self.logAdded.emit("Local simplification currently requires a .blend file.")
+            return
+        if target_triangles <= 0:
+            self.logAdded.emit("Target triangles must be greater than zero.")
+            return
+        if not self._state.get("qemHeatmap"):
+            self.logAdded.emit("Generate QEM heatmap before local simplification.")
+            return
+        if not self._state.get("afcostCandidates"):
+            self.logAdded.emit("Generate combo scores before local simplification.")
+            return
+        if self._start_busy("Running local edge-collapse simplification..."):
+            return
+        self._state["targetTriangles"] = target_triangles
+        self._settings.setValue("targetTriangles", target_triangles)
+        self._state["realPreview"] = None
+        self._state["currentPreviewTarget"] = None
+        self._current_preview_target = None
+        self._current_preview_blend_file = None
+        worker = LocalSimplificationWorker(
+            self._local_simplification_service,
+            self._pipeline_blend_file(),
+            "cities_skylines_vehicle",
+            target_triangles,
+            self._selected_file.parent / "previews",
+            combo_candidate or "auto",
+        )
+        worker.signals.started.connect(
+            lambda: self._run_on_ui(
+                lambda: self.logAdded.emit(
+                    f"Local simplification started with {combo_candidate or 'auto'}."
+                )
+            )
         )
         worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
         worker.signals.finished.connect(
@@ -1282,6 +1343,7 @@ class WebMainWindow(QMainWindow):
         build_service: CitiesSkylinesBuildService,
         preprocess_service: PreprocessService,
         real_preview_service: RealOptimizationPreviewService,
+        local_simplification_service: LocalSimplificationService,
         model_preview_service: ModelPreviewService,
         geometry_report_service: GeometryReportService,
         simplification_report_service: SimplificationReportService,
@@ -1304,6 +1366,7 @@ class WebMainWindow(QMainWindow):
             build_service,
             preprocess_service,
             real_preview_service,
+            local_simplification_service,
             model_preview_service,
             geometry_report_service,
             simplification_report_service,
