@@ -21,8 +21,8 @@ for parent in Path(__file__).resolve().parents:
 from assetforge.analysis.edge_collapse import (  # noqa: E402
     CollapseExecutor,
     EdgeCollapseMesh,
-    HybridCostProvider,
     QEMPlacement,
+    SelectedAFCostProvider,
     _optimal_qem_position,
     _quadric_error,
     _sum_quadrics,
@@ -37,6 +37,10 @@ from generate_afcost_candidates import (  # noqa: E402
 )
 from generate_model_preview import generate as generate_model_preview  # noqa: E402
 from optimize_vehicle import _count_scene_triangles, _mesh_objects  # noqa: E402
+
+
+def _emit_progress(payload: dict[str, Any]) -> None:
+    print("ASSETFORGE_PROGRESS " + json.dumps(payload, separators=(",", ":")), flush=True)
 
 
 def _valid_triangle(triangle: tuple[int, int, int], vertex_count: int) -> tuple[int, int, int] | None:
@@ -339,10 +343,27 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
                 float(args.eps),
             )
             selected_candidates.add(selected)
+            cost_provider = SelectedAFCostProvider.from_mesh(
+                source_mesh,
+                selected,
+                lambda_value=float(args.lambda_value),
+                eps=float(args.eps),
+            )
             result = CollapseExecutor(
-                HybridCostProvider(scores, default_prior=0.0),
+                cost_provider,
                 QEMPlacement(),
-            ).simplify(source_mesh, object_target)
+            ).simplify(
+                source_mesh,
+                object_target,
+                progress_callback=lambda progress, object_name=obj.name: _emit_progress(
+                    {
+                        "kind": "local_simplification",
+                        "object_name": object_name,
+                        "combo_candidate": selected,
+                        **progress,
+                    }
+                ),
+            )
             _apply_result_to_object(obj, result.vertices, result.triangles)
             object_reports.append(
                 {
@@ -383,7 +404,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "collapse_count": sum(int(item["collapse_count"]) for item in object_reports),
         "skipped_invalid_edges": sum(int(item["skipped_invalid_edges"]) for item in object_reports),
         "runtime": sum(float(item.get("runtime", 0.0)) for item in object_reports),
-        "cost_provider_name": "HybridCostProvider",
+        "cost_provider_name": "SelectedAFCostProvider",
         "placement_provider_name": "QEMPlacement",
         "combo_candidate": ",".join(sorted(selected_candidates)) if selected_candidates else str(args.combo_candidate),
         "objects": object_reports,

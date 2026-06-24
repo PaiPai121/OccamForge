@@ -25,6 +25,21 @@ BOUNDARY_PENALTY_WEIGHT = 12.0
 NORMAL_PENALTY_WEIGHT = 8.0
 
 
+def _emit_progress(percent: int, stage: str) -> None:
+    print(
+        "ASSETFORGE_PROGRESS "
+        + json.dumps(
+            {
+                "kind": "qem_heatmap",
+                "percent": max(0, min(100, int(percent))),
+                "stage": stage,
+            },
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
+
+
 def _clear_scene() -> None:
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
@@ -552,9 +567,12 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
     source = Path(args.source_file).resolve()
     output_directory = Path(args.output_directory).resolve()
     output_directory.mkdir(parents=True, exist_ok=True)
+    _emit_progress(5, "Importing source model")
     _import_source(source)
     mesh_objects = _mesh_objects()
+    _emit_progress(25, "Collecting edge quadrics")
     edges, metadata = _collect_qem_data(mesh_objects)
+    _emit_progress(45, "Computing classic QEM heat values")
     min_max = _apply_cost_visualization(
         edges,
         "cost",
@@ -562,6 +580,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "display_heat",
         "color_rgb",
     )
+    _emit_progress(55, "Computing feature-aware QEM heat values")
     feature_min_max = _apply_cost_visualization(
         edges,
         "feature_cost",
@@ -569,6 +588,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "feature_display_heat",
         "feature_color_rgb",
     )
+    _emit_progress(62, "Summarizing edge cost distributions")
     stats = _cost_statistics(edges, min_max, "cost")
     feature_stats = _cost_statistics(edges, feature_min_max, "feature_cost")
 
@@ -587,13 +607,20 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
     feature_ply_path = output_directory / "feature_qem_heatmap.ply"
     feature_png_path = output_directory / "feature_qem_heatmap.png"
     feature_inverse_png_path = output_directory / "feature_qem_heatmap_inverse.png"
+    _emit_progress(68, "Writing classic QEM PLY")
     _write_ply(edges, ply_path, "color_rgb")
+    _emit_progress(73, "Rendering classic QEM heatmap")
     _render_heatmap(edges, png_path, "display_heat")
+    _emit_progress(79, "Rendering inverted classic QEM heatmap")
     _render_heatmap(edges, inverse_png_path, "display_heat", invert=True)
+    _emit_progress(84, "Writing feature-aware QEM PLY")
     _write_ply(edges, feature_ply_path, "feature_color_rgb")
+    _emit_progress(89, "Rendering feature-aware QEM heatmap")
     _render_heatmap(edges, feature_png_path, "feature_display_heat")
+    _emit_progress(94, "Rendering inverted feature-aware QEM heatmap")
     _render_heatmap(edges, feature_inverse_png_path, "feature_display_heat", invert=True)
 
+    _emit_progress(98, "Writing QEM report")
     report = {
         "source_file": str(source),
         "output_directory": str(output_directory),
@@ -638,6 +665,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "errors": [],
     }
     Path(report["report_json_path"]).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    _emit_progress(100, "QEM heatmap complete")
     return report
 
 

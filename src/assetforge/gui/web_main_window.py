@@ -123,6 +123,10 @@ class AssetForgeBridge(QObject):
         self._busy = False
         self._analysis_generation = 0
         self._source_preview_generation = 0
+        self._autotest_full_local = os.getenv("ASSETFORGE_AUTOTEST_FULL_LOCAL") == "1"
+        self._autotest_step: str | None = None
+        self._autotest_candidate = os.getenv("ASSETFORGE_AUTOTEST_CANDIDATE", "AFCost_00")
+        self._autotest_target = int(os.getenv("ASSETFORGE_AUTOTEST_TARGET_TRIANGLES", "30000"))
         self._settings = QSettings("AssetForge", "AssetForge")
         output_folder, output_source = self._default_output_folder()
         target_triangles = self._saved_target_triangles()
@@ -1241,6 +1245,7 @@ class AssetForgeBridge(QObject):
         self._state["status"] = message
         self._emit_state()
         self.logAdded.emit(message)
+        self._debug_log(f"backend: progress: {message}")
 
     def _start_busy(self, status: str) -> bool:
         if self._busy:
@@ -1261,6 +1266,7 @@ class AssetForgeBridge(QObject):
         self._state["status"] = status
         self._emit_state()
         self._debug_log(f"backend: busy finished: {status}")
+        self._continue_full_local_autotest()
 
     def _fail(self, message: str) -> None:
         self._busy = False
@@ -1270,6 +1276,49 @@ class AssetForgeBridge(QObject):
         self._emit_state()
         self.logAdded.emit(f"ERROR: {message}")
         self._debug_log(f"backend: operation failed: {message}")
+        if self._autotest_full_local:
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
+
+    def _continue_full_local_autotest(self) -> None:
+        if not self._autotest_full_local or self._busy or self._autotest_step is None:
+            return
+        if self._autotest_step == "analysis" and self._state.get("analysis"):
+            self._autotest_step = "qem"
+            self._debug_log("backend: full local autotest step qem")
+            QTimer.singleShot(0, self.generateQemHeatmap)
+            return
+        if self._autotest_step == "qem" and self._state.get("qemHeatmap"):
+            self._autotest_step = "scale"
+            self._debug_log("backend: full local autotest step scale")
+            QTimer.singleShot(0, self.generateScaleAnalysis)
+            return
+        if self._autotest_step == "scale" and self._state.get("scaleAnalysis"):
+            self._autotest_step = "afcost"
+            self._debug_log("backend: full local autotest step afcost")
+            QTimer.singleShot(0, self.generateAFCostCandidates)
+            return
+        if self._autotest_step == "afcost" and self._state.get("afcostCandidates"):
+            self._autotest_step = "collapse"
+            self._debug_log(
+                f"backend: full local autotest step collapse target={self._autotest_target} "
+                f"candidate={self._autotest_candidate}"
+            )
+            QTimer.singleShot(
+                0,
+                lambda: self.generateLocalSimplification(
+                    self._autotest_target,
+                    self._autotest_candidate,
+                ),
+            )
+            return
+        if self._autotest_step == "collapse" and self._state.get("realPreview"):
+            self._debug_log("backend: full local autotest complete; exiting")
+            self._autotest_step = "done"
+            app = QApplication.instance()
+            if app is not None:
+                QTimer.singleShot(0, app.quit)
 
     def _emit_state(self) -> None:
         payload = _json(self._state)
@@ -1389,4 +1438,7 @@ class WebMainWindow(QMainWindow):
         if not blend_file:
             return
         self._bridge._debug_log(f"backend: autotest loading blend {blend_file}")
+        if os.getenv("ASSETFORGE_AUTOTEST_FULL_LOCAL") == "1":
+            self._bridge._autotest_step = "analysis"
+            self._bridge._debug_log("backend: full local autotest armed")
         QTimer.singleShot(200, lambda: self._bridge.openBlendFile(blend_file))

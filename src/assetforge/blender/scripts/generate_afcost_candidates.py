@@ -49,6 +49,21 @@ CANDIDATE_DEFINITIONS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _emit_progress(percent: int, stage: str) -> None:
+    print(
+        "ASSETFORGE_PROGRESS "
+        + json.dumps(
+            {
+                "kind": "afcost_candidates",
+                "percent": max(0, min(100, int(percent))),
+                "stage": stage,
+            },
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
+
+
 def _normalize(values: Sequence[float]) -> list[float]:
     if not values:
         return []
@@ -146,20 +161,24 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
     if source.suffix.lower() not in SUPPORTED_EXTENSIONS:
         return {"input": str(source), "errors": [f"Unsupported source type: {source.suffix}"]}
 
+    _emit_progress(5, "Importing source model")
     _import_source(source)
     target = _select_object(args.object_name)
     if target is None:
         return {"input": str(source), "errors": ["No mesh object was found."]}
     target_name = str(target.name)
 
+    _emit_progress(20, "Computing scale persistence and tiny detail")
     mesh = _to_scale_mesh(target)
     scale_result = analyze_scale_persistence(mesh, scales=_parse_scales(args.scales, _bbox_diagonal(target)))
+    _emit_progress(40, "Collecting QEM edge costs")
     all_edges, metadata = _collect_qem_data([target])
     if not all_edges:
         return {"input": str(source), "object_name": target.name, "errors": ["No mesh edges were found."]}
     qem_min_max = _apply_cost_visualization(all_edges, "cost", "heat", "display_heat", "color_rgb")
     qem_stats = _cost_statistics(all_edges, qem_min_max, "cost")
 
+    _emit_progress(55, "Projecting parent signals onto edges")
     qem_values: list[float] = []
     persistence_values: list[float] = []
     tiny_values: list[float] = []
@@ -180,7 +199,11 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
     )
     candidates: list[dict[str, Any]] = []
     formulas = dict(CANDIDATE_DEFINITIONS)
-    for name, _ in CANDIDATE_DEFINITIONS:
+    for index, (name, _) in enumerate(CANDIDATE_DEFINITIONS, start=1):
+        _emit_progress(
+            55 + round((index - 1) / max(len(CANDIDATE_DEFINITIONS), 1) * 40),
+            f"Rendering {name}",
+        )
         output_path = output_directory / f"{name}.png"
         values = candidate_values[name]
         _render_candidate(all_edges, name, values, output_path)
@@ -220,6 +243,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "errors": scale_result.errors,
     }
     (output_directory / "afcost_candidates_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    _emit_progress(100, "AF cost candidates complete")
     return report
 
 

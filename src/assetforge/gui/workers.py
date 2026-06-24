@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
@@ -264,12 +265,26 @@ class LocalSimplificationWorker(QRunnable):
         self.signals.started.emit()
         try:
             self.signals.progress.emit("Running local edge-collapse simplification...")
+            def progress_callback(payload: dict[str, Any]) -> None:
+                collapse_count = int(payload.get("collapse_count", 0))
+                estimated_total = max(1, int(payload.get("estimated_total_collapses", 1)))
+                percent = max(0, min(100, int(round((collapse_count / estimated_total) * 100))))
+                current_triangles = int(payload.get("current_triangles", 0))
+                target_triangles = int(payload.get("target_triangles", self._target_triangle_count))
+                candidate = str(payload.get("combo_candidate", self._combo_candidate))
+                self.signals.progress.emit(
+                    f"Local edge-collapse {percent}%: "
+                    f"{collapse_count:,}/{estimated_total:,} collapses, "
+                    f"{current_triangles:,}->{target_triangles:,} tris, {candidate}"
+                )
+
             report: RealOptimizationPreviewReport = self._simplification_service.generate(
                 self._blend_file,
                 self._profile_id,
                 self._target_triangle_count,
                 self._output_directory,
                 self._combo_candidate,
+                progress_callback,
             )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
             self.signals.failed.emit(str(exc))
@@ -410,9 +425,15 @@ class QemHeatmapWorker(QRunnable):
         self.signals.started.emit()
         try:
             self.signals.progress.emit("Computing QEM edge collapse costs...")
+            def progress_callback(payload: dict[str, Any]) -> None:
+                percent = max(0, min(100, int(payload.get("percent", 0))))
+                stage = str(payload.get("stage", "Computing QEM edge collapse costs"))
+                self.signals.progress.emit(f"QEM heatmap {percent}%: {stage}")
+
             report = self._qem_heatmap_service.generate(
                 self._source_file,
                 self._output_directory,
+                progress_callback,
             )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
             self.signals.failed.emit(str(exc))
@@ -445,9 +466,15 @@ class ScaleAnalysisWorker(QRunnable):
         self.signals.started.emit()
         try:
             self.signals.progress.emit("Computing multi-scale visual importance...")
+            def progress_callback(payload: dict[str, Any]) -> None:
+                percent = max(0, min(100, int(payload.get("percent", 0))))
+                stage = str(payload.get("stage", "Computing multi-scale visual importance"))
+                self.signals.progress.emit(f"Scale analysis {percent}%: {stage}")
+
             report = self._scale_analysis_service.generate(
                 self._source_file,
                 self._output_directory,
+                progress_callback,
             )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
             self.signals.failed.emit(str(exc))
@@ -480,9 +507,15 @@ class AFCostCandidateWorker(QRunnable):
         self.signals.started.emit()
         try:
             self.signals.progress.emit("Computing AF cost combination candidates...")
+            def progress_callback(payload: dict[str, Any]) -> None:
+                percent = max(0, min(100, int(payload.get("percent", 0))))
+                stage = str(payload.get("stage", "Computing AF cost combination candidates"))
+                self.signals.progress.emit(f"AF cost candidates {percent}%: {stage}")
+
             report = self._afcost_candidate_service.generate(
                 self._source_file,
                 self._output_directory,
+                progress_callback,
             )
         except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
             self.signals.failed.emit(str(exc))

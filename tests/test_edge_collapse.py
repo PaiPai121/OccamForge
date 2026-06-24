@@ -14,6 +14,7 @@ from assetforge.analysis.edge_collapse import (
     MidpointPlacement,
     QEMCostProvider,
     QEMPlacement,
+    SelectedAFCostProvider,
     StaticEdgeScoreProvider,
     StaticPriorProvider,
     _CollapseState,
@@ -255,6 +256,30 @@ def test_combo_cost_provider_can_drive_current_afcost_experiment_input() -> None
 
 def test_combo_cost_provider_aliases_hybrid_provider_for_existing_callers() -> None:
     assert ComboCostProvider is HybridCostProvider
+
+
+def test_selected_afcost_provider_recomputes_dynamic_candidate_after_collapse() -> None:
+    provider = SelectedAFCostProvider.from_mesh(_strip_mesh(), "AFCost_06")
+
+    result = CollapseExecutor(provider, MidpointPlacement()).simplify(
+        _strip_mesh(),
+        target_triangle_count=2,
+    )
+
+    assert result.collapsed_edge_count == 2
+    assert result.report_dict()["cost_provider_name"] == "SelectedAFCostProvider"
+
+
+def test_selected_afcost_provider_uses_frozen_normalization_for_new_edges() -> None:
+    state = _CollapseState(_strip_mesh())
+    provider = SelectedAFCostProvider.from_mesh(_strip_mesh(), "AFCost_07")
+
+    step = state.collapse((0, 1), cost=0.0, placement=(0.5, 0.0, 0.0))
+
+    assert step is not None
+    assert (0, 2) in state.edge_faces
+    cost = provider.score((0, 2), state)
+    assert math.isfinite(cost)
 
 
 def test_static_prior_inherits_through_collapsed_vertex_lineage() -> None:

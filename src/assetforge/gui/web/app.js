@@ -22,6 +22,7 @@ let pipelineReviewAction = "apply_stage";
 let qemViewMode = "classic";
 let heatmapInverted = false;
 let pendingHeatmapDiagnostics = false;
+let pendingLocalCollapseCandidate = null;
 const VIEW_YAW = 0.62;
 const VIEW_PITCH = -0.22;
 const LEGACY_PIPELINE_PREFIX = "Stage";
@@ -190,20 +191,113 @@ function userFacingPipelineLines(warnings) {
 }
 
 function workflowActionLabel() {
-  return "Heatmap Diagnostics";
+  return "Generate Combo Scores";
 }
 
 function runWorkflowAction() {
-  appendLog("Heatmap Diagnostics clicked.");
+  appendLog("Heatmap diagnostics pipeline clicked.");
   pendingHeatmapDiagnostics = true;
-  if (state.qemHeatmap && state.scaleAnalysis) {
+  if (state.qemHeatmap && state.scaleAnalysis && state.afcostCandidates) {
     pendingHeatmapDiagnostics = false;
-    openScaleModal();
+    renderAFCostCandidates(state.afcostCandidates);
+    openAFCostModal();
   } else if (!state.qemHeatmap) {
     runWithOptionalPreprocess("qem");
-  } else {
+  } else if (!state.scaleAnalysis) {
     runWithOptionalPreprocess("scale");
+  } else {
+    runWithOptionalPreprocess("afcost");
   }
+}
+
+function isLocalCollapseBusy() {
+  const status = String(state.status || "").toLowerCase();
+  return Boolean(
+    state.busy
+    && (
+      pendingLocalCollapseCandidate
+      || status.includes("local edge-collapse")
+      || status.includes("local simplification")
+    )
+  );
+}
+
+function localCollapsePercent() {
+  const match = String(state.status || "").match(/Local edge-collapse\s+(\d+)%/i);
+  if (!match) return 0;
+  return Math.max(0, Math.min(100, Number(match[1])));
+}
+
+function afcostCandidatePercent() {
+  const match = String(state.status || "").match(/AF cost candidates\s+(\d+)%/i);
+  if (!match) return 0;
+  return Math.max(0, Math.min(100, Number(match[1])));
+}
+
+function scaleAnalysisPercent() {
+  const match = String(state.status || "").match(/Scale analysis\s+(\d+)%/i);
+  if (!match) return 0;
+  return Math.max(0, Math.min(100, Number(match[1])));
+}
+
+function qemHeatmapPercent() {
+  const match = String(state.status || "").match(/QEM heatmap\s+(\d+)%/i);
+  if (!match) return 0;
+  return Math.max(0, Math.min(100, Number(match[1])));
+}
+
+function isAFCostCandidateBusy() {
+  const status = String(state.status || "").toLowerCase();
+  return Boolean(state.busy && status.includes("af cost"));
+}
+
+function isScaleAnalysisBusy() {
+  const status = String(state.status || "").toLowerCase();
+  return Boolean(
+    state.busy
+    && (status.includes("scale analysis") || status.includes("multi-scale visual importance"))
+  );
+}
+
+function isQemHeatmapBusy() {
+  const status = String(state.status || "").toLowerCase();
+  return Boolean(
+    state.busy
+    && (status.includes("qem heatmap") || status.includes("qem edge collapse costs"))
+  );
+}
+
+function renderProgressPanel({
+  eyebrow,
+  title,
+  heading,
+  percent,
+  detail,
+  note,
+  actual,
+}) {
+  viewportUrl = null;
+  cancelAnimationFrame(viewportFrame);
+  setText("previewEyebrow", eyebrow);
+  setText("previewTitle", title);
+  $("previewStage").innerHTML = `
+    <div class="local-collapse-progress">
+      <strong>${escapeHtml(heading)}</strong>
+      <span>${escapeHtml(detail)}</span>
+      <div class="local-collapse-track" aria-label="${escapeHtml(title)} progress">
+        <i style="width: ${percent}%"></i>
+      </div>
+      <b>${percent}%</b>
+      <small>${escapeHtml(note)}</small>
+    </div>
+  `;
+  setText("metricOriginal", state.analysis ? `${formatNumber(state.analysis.triangle_count)} tris` : "-");
+  setText("metricTarget", `${formatNumber(targetValue())} tris`);
+  setText("metricActual", actual);
+  setText("metricReduction", "-");
+  setText("metricScore", "-");
+  setText("metricRating", "Working");
+  renderPreviewNotice("working", `${title} is running`, [detail]);
 }
 
 function vectorCross(a, b) {
@@ -489,6 +583,9 @@ function updateBusy() {
 
 function renderState(nextState) {
   state = nextState || {};
+  if (!state.busy && pendingLocalCollapseCandidate) {
+    pendingLocalCollapseCandidate = null;
+  }
   $("targetTriangles").value = state.targetTriangles || 3000;
   $("targetSlider").value = Math.min(Math.max(Number(state.targetTriangles || 3000), 1000), 30000);
   $("optimizeToggle").checked = true;
@@ -510,7 +607,47 @@ function renderState(nextState) {
   const preprocess = state.preprocess;
   const preview = state.realPreview;
   const item = preview && preview.items && preview.items.length ? preview.items[0] : null;
-  if (item && hasPreviewForTarget()) {
+  if (isQemHeatmapBusy()) {
+    renderProgressPanel({
+      eyebrow: "QEM Heatmap",
+      title: "Computing edge costs",
+      heading: "Computing QEM edge collapse costs",
+      percent: qemHeatmapPercent(),
+      detail: state.status || "Computing QEM edge collapse costs",
+      note: "Computing classic and feature-aware QEM diagnostics, then rendering heatmaps.",
+      actual: "Scoring",
+    });
+  } else if (isScaleAnalysisBusy()) {
+    renderProgressPanel({
+      eyebrow: "Scale Analysis",
+      title: "Computing visual importance",
+      heading: "Computing multi-scale visual importance",
+      percent: scaleAnalysisPercent(),
+      detail: state.status || "Computing multi-scale visual importance",
+      note: "Computing persistence, tiny-detail signals, and diagnostic heatmaps.",
+      actual: "Analyzing",
+    });
+  } else if (isAFCostCandidateBusy()) {
+    renderProgressPanel({
+      eyebrow: "Combo Scores",
+      title: "Generating AFCost candidates",
+      heading: "Generating combo score heatmaps",
+      percent: afcostCandidatePercent(),
+      detail: state.status || "Computing AF cost combination candidates",
+      note: "Computing parent signals, combining AFCost formulas, and rendering candidate heatmaps.",
+      actual: "Scoring",
+    });
+  } else if (isLocalCollapseBusy()) {
+    renderProgressPanel({
+      eyebrow: "Local Simplification",
+      title: "Running edge-collapse executor",
+      heading: "Running local edge-collapse simplification",
+      percent: localCollapsePercent(),
+      detail: state.status || pendingLocalCollapseCandidate || "Selected AFCost candidate",
+      note: "Updating local topology, recomputing selected candidate costs, and validating collapses.",
+      actual: "Running",
+    });
+  } else if (item && hasPreviewForTarget()) {
     viewportUrl = null;
     cancelAnimationFrame(viewportFrame);
     setText("previewEyebrow", "Real Preview");
@@ -722,8 +859,13 @@ function continueHeatmapDiagnosticsIfNeeded() {
     runWithOptionalPreprocess("scale");
     return;
   }
+  if (!state.afcostCandidates) {
+    runWithOptionalPreprocess("afcost");
+    return;
+  }
   pendingHeatmapDiagnostics = false;
-  openScaleModal();
+  renderAFCostCandidates(state.afcostCandidates);
+  openAFCostModal();
 }
 
 function openQemModal() {
@@ -1171,7 +1313,9 @@ function renderScaleAnalysis(report) {
   const reportKey = `${heatmapInverted}:${report.mean_curvature_heatmap_url || ""}:${report.center_surround_heatmap_url || ""}:${report.scale_persistence_heatmap_url || ""}:${report.tiny_detail_heatmap_url || ""}:${report.vertex_count || ""}:${tinyStats.p75 || ""}:${qem.heatmap_png_url || ""}`;
   if (hasScaleReport && lastScaleAnalysisKey !== reportKey) {
     lastScaleAnalysisKey = reportKey;
-    window.requestAnimationFrame(openScaleModal);
+    if (!pendingHeatmapDiagnostics) {
+      window.requestAnimationFrame(openScaleModal);
+    }
   }
   renderAFCostCandidates(state.afcostCandidates);
 }
@@ -1206,10 +1350,14 @@ function renderAFCostCandidates(report) {
     `)
     .join("");
   grid.querySelectorAll("[data-afcost]").forEach((button) => {
+    button.disabled = Boolean(state.busy);
     button.addEventListener("click", () => {
       const candidateName = button.dataset.afcost || "auto";
+      pendingLocalCollapseCandidate = candidateName;
       appendLog(`Collapse with ${candidateName} clicked at target ${formatNumber(targetValue())} tris.`);
       bridge.generateLocalSimplification(targetValue(), candidateName);
+      button.textContent = `Running ${candidateName}...`;
+      button.disabled = true;
       closeAFCostModal();
     });
   });

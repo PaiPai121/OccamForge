@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 SUPPORTED_AFCOST_EXTENSIONS = {".blend", ".obj", ".fbx", ".glb", ".gltf"}
@@ -16,6 +16,7 @@ class AFCostCandidateGenerator(ABC):
         self,
         source_file: Path,
         output_directory: Path,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         raise NotImplementedError
 
@@ -30,6 +31,7 @@ class AFCostCandidateService:
         self,
         source_file: Path,
         output_directory: Path | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         if not source_file.exists():
             raise FileNotFoundError(f"Model file does not exist: {source_file}")
@@ -38,4 +40,6 @@ class AFCostCandidateService:
             raise ValueError(f"Expected one of {supported}, got: {source_file}")
 
         report_directory = output_directory or source_file.parent / "afcost_candidates"
-        return self._generator.generate_afcost_candidates(source_file, report_directory)
+        if progress_callback is None:
+            return self._generator.generate_afcost_candidates(source_file, report_directory)
+        return self._generator.generate_afcost_candidates(source_file, report_directory, progress_callback)

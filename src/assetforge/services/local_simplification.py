@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any, Callable
 
 from assetforge.domain.asset_profile import AssetProfile, AssetProfileRegistry
 from assetforge.domain.real_optimization_preview import RealOptimizationPreviewReport
@@ -18,6 +19,7 @@ class LocalSimplifier(ABC):
         target_triangle_count: int,
         output_directory: Path,
         combo_candidate: str = "auto",
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> RealOptimizationPreviewReport:
         raise NotImplementedError
 
@@ -40,6 +42,7 @@ class LocalSimplificationService:
         target_triangle_count: int = 5000,
         output_directory: Path | None = None,
         combo_candidate: str = "auto",
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> RealOptimizationPreviewReport:
         if not blend_file.exists():
             raise FileNotFoundError(f"Blend file does not exist: {blend_file}")
@@ -56,4 +59,5 @@ class LocalSimplificationService:
             target_triangle_count,
             preview_directory,
             combo_candidate,
+            progress_callback,
         )

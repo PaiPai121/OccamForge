@@ -563,6 +563,54 @@ button.chip {
   margin-top: 10px;
 }
 
+.local-collapse-progress {
+  width: min(520px, 86%);
+  display: grid;
+  gap: 10px;
+  text-align: center;
+  color: var(--text);
+}
+
+.local-collapse-progress::before {
+  content: none;
+}
+
+.local-collapse-track {
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #dce4ef;
+  border: 1px solid #c8d3e0;
+}
+
+.local-collapse-track i {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #12b76a);
+  transition: width 180ms ease;
+}
+
+.local-collapse-progress strong {
+  font-size: 18px;
+}
+
+.local-collapse-progress span {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.local-collapse-progress b {
+  font-size: 16px;
+  color: var(--accent-strong);
+}
+
+.local-collapse-progress small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .pipeline-review-copy {
   display: grid;
   gap: 12px;

@@ -7,7 +7,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import Callable, Protocol, Sequence
 
 
 Vector3 = tuple[float, float, float]
@@ -57,6 +57,15 @@ class MeshState(Protocol):
         raise NotImplementedError
 
     def qem_edge_evaluation(self, edge: Edge) -> tuple[Vector3, float]:
+        raise NotImplementedError
+
+    def topology_version(self) -> int:
+        raise NotImplementedError
+
+    def vertex_neighbors(self, vertex: int, ring_depth: int = 1) -> set[int]:
+        raise NotImplementedError
+
+    def incident_faces(self, vertex: int) -> Sequence[Triangle]:
         raise NotImplementedError
 
 
@@ -240,6 +249,173 @@ class HybridCostProvider:
 ComboCostProvider = HybridCostProvider
 
 
+@dataclass(frozen=True, slots=True)
+class _AFCostSignals:
+    qem_log: float
+    persistence: float
+    tiny_detail: float
+    qem_cost: float
+
+
+@dataclass(frozen=True, slots=True)
+class _RangeNormalizer:
+    low: float
+    high: float
+
+    @classmethod
+    def from_values(cls, values: Sequence[float]) -> "_RangeNormalizer":
+        finite = [float(value) for value in values if math.isfinite(float(value))]
+        if not finite:
+            return cls(0.0, 1.0)
+        low = min(finite)
+        high = max(finite)
+        if high - low <= 1e-12:
+            high = low + 1.0
+        return cls(low, high)
+
+    def normalize(self, value: float) -> float:
+        if not math.isfinite(value):
+            return 0.0
+        return max(0.0, min(1.0, (float(value) - self.low) / (self.high - self.low)))
+
+
+class _AFCostDynamicNormalizer:
+    def __init__(self, signals: Sequence[_AFCostSignals], eps: float) -> None:
+        self._eps = float(eps)
+        self._qem_base = _RangeNormalizer.from_values([signal.qem_log for signal in signals])
+        self._p = _RangeNormalizer.from_values([signal.persistence for signal in signals])
+        self._d = _RangeNormalizer.from_values([signal.tiny_detail for signal in signals])
+        projected = [self.project(signal) for signal in signals]
+        p_values = [item[1] for item in projected]
+        d_values = [item[2] for item in projected]
+        self._p_over_d = _RangeNormalizer.from_values(
+            [p / (d + self._eps) for p, d in zip(p_values, d_values, strict=False)]
+        )
+        self._d_over_p = _RangeNormalizer.from_values(
+            [d / (p + self._eps) for p, d in zip(p_values, d_values, strict=False)]
+        )
+        self._p_minus_d = _RangeNormalizer.from_values(
+            [p - d for p, d in zip(p_values, d_values, strict=False)]
+        )
+        self._d_minus_p = _RangeNormalizer.from_values(
+            [d - p for p, d in zip(p_values, d_values, strict=False)]
+        )
+        self._p_inv_d = _RangeNormalizer.from_values(
+            [p * (1.0 - d) for p, d in zip(p_values, d_values, strict=False)]
+        )
+
+    def project(self, signal: _AFCostSignals) -> tuple[float, float, float]:
+        return (
+            self._qem_base.normalize(signal.qem_log),
+            self._p.normalize(signal.persistence),
+            self._d.normalize(signal.tiny_detail),
+        )
+
+    def combination_factor(self, name: str, p: float, d: float) -> float:
+        if name == "AFCost_07":
+            return self._p_over_d.normalize(p / (d + self._eps))
+        if name == "AFCost_08":
+            return self._d_over_p.normalize(d / (p + self._eps))
+        if name == "AFCost_09":
+            return self._p_minus_d.normalize(p - d)
+        if name == "AFCost_10":
+            return self._d_minus_p.normalize(d - p)
+        if name == "AFCost_11":
+            return self._p_inv_d.normalize(p * (1.0 - d))
+        raise ValueError(f"Unsupported normalized AFCost factor: {name}")
+
+
+class SelectedAFCostProvider:
+    """Dynamically recompute one selected AFCost candidate on locally changed edges.
+
+    The candidate formula is fixed by the user selection. Normalization ranges are
+    frozen from the initial mesh, so local recompute does not rescale each small
+    neighborhood independently.
+    """
+
+    name = "SelectedAFCostProvider"
+    _SUPPORTED = {f"AFCost_{index:02d}" for index in range(12)}
+
+    def __init__(
+        self,
+        candidate_name: str,
+        normalizer: _AFCostDynamicNormalizer,
+        *,
+        lambda_value: float = 1.0,
+        eps: float = 1e-6,
+        geometry_safety_weight: float = 0.25,
+    ) -> None:
+        if candidate_name not in self._SUPPORTED:
+            raise ValueError(f"Unsupported AFCost candidate: {candidate_name}")
+        self._candidate_name = candidate_name
+        self._normalizer = normalizer
+        self._lambda = float(lambda_value)
+        self._eps = float(eps)
+        self._geometry_safety_weight = float(geometry_safety_weight)
+        self._mesh_scale_cache: dict[int, float] = {}
+        self._vertex_signal_cache: dict[tuple[int, int, int], tuple[float, float]] = {}
+
+    @classmethod
+    def from_mesh(
+        cls,
+        mesh: EdgeCollapseMesh,
+        candidate_name: str,
+        *,
+        lambda_value: float = 1.0,
+        eps: float = 1e-6,
+        geometry_safety_weight: float = 0.25,
+    ) -> "SelectedAFCostProvider":
+        state = _CollapseState(mesh)
+        signals = [
+            _edge_afcost_signals(edge, state, float(eps), {})
+            for edge in sorted(state.edge_faces)
+        ]
+        return cls(
+            candidate_name,
+            _AFCostDynamicNormalizer(signals, float(eps)),
+            lambda_value=lambda_value,
+            eps=eps,
+            geometry_safety_weight=geometry_safety_weight,
+        )
+
+    @property
+    def candidate_name(self) -> str:
+        return self._candidate_name
+
+    def score(self, edge: Edge, mesh_state: MeshState) -> float:
+        signal = _edge_afcost_signals(edge, mesh_state, self._eps, self._vertex_signal_cache)
+        qem_base, p_value, d_value = self._normalizer.project(signal)
+        candidate_score = self._candidate_score(qem_base, p_value, d_value)
+        scale = self._mesh_scale_cache.get(id(mesh_state))
+        if scale is None:
+            scale = _mesh_diagonal_squared(mesh_state.vertices)
+            self._mesh_scale_cache[id(mesh_state)] = scale
+        geometry_safety = math.log1p(max(0.0, signal.qem_cost) / max(scale, 1e-12))
+        return self._geometry_safety_weight * geometry_safety - candidate_score
+
+    def _candidate_score(self, qem_base: float, p_value: float, d_value: float) -> float:
+        inv_p = 1.0 - p_value
+        inv_d = 1.0 - d_value
+        name = self._candidate_name
+        if name == "AFCost_00":
+            return qem_base
+        if name == "AFCost_01":
+            return qem_base * (1.0 + self._lambda * p_value)
+        if name == "AFCost_02":
+            return qem_base * (1.0 + self._lambda * inv_d)
+        if name == "AFCost_03":
+            return qem_base * (1.0 + self._lambda * p_value * inv_d)
+        if name == "AFCost_04":
+            return qem_base * max(0.0, 1.0 - self._lambda * d_value)
+        if name == "AFCost_05":
+            return qem_base * max(0.0, 1.0 - self._lambda * inv_p)
+        if name == "AFCost_06":
+            return qem_base * max(0.0, 1.0 - self._lambda * d_value * inv_p)
+        if name in {"AFCost_07", "AFCost_08", "AFCost_09", "AFCost_10", "AFCost_11"}:
+            return qem_base * self._normalizer.combination_factor(name, p_value, d_value)
+        return math.inf
+
+
 class QEMCostProvider:
     name = "QEMCostProvider"
 
@@ -281,6 +457,7 @@ class CollapseExecutor:
         max_collapses: int | None = None,
         batch_size: int = DEFAULT_BATCH_SIZE,
         batch_ring_depth: int = DEFAULT_BATCH_RING_DEPTH,
+        progress_callback: Callable[[dict[str, int]], None] | None = None,
     ) -> EdgeCollapseResult:
         if target_triangle_count < 0:
             raise ValueError("target_triangle_count must be non-negative")
@@ -291,6 +468,12 @@ class CollapseExecutor:
 
         started_at = time.perf_counter()
         state = _CollapseState(mesh)
+        estimated_total_collapses = max(
+            1,
+            math.ceil(max(0, state.triangle_count - target_triangle_count) / 2),
+        )
+        if max_collapses is not None:
+            estimated_total_collapses = min(estimated_total_collapses, max_collapses)
         heap: list[tuple[float, int, Edge, int]] = []
         sequence = 0
         skipped_invalid_edges = 0
@@ -376,6 +559,15 @@ class CollapseExecutor:
 
             for next_edge in sorted(state.edges_touching_any(affected_vertices)):
                 push(next_edge)
+            if progress_callback is not None and steps:
+                progress_callback(
+                    {
+                        "collapse_count": len(steps),
+                        "estimated_total_collapses": estimated_total_collapses,
+                        "current_triangles": state.triangle_count,
+                        "target_triangles": target_triangle_count,
+                    }
+                )
 
         return EdgeCollapseResult(
             vertices=state.compact_vertices(),
@@ -400,6 +592,7 @@ class _CollapseState:
         self.alive_vertices = set(range(len(self.vertices)))
         self.vertex_lineage: list[set[int]] = [{index} for index in range(len(self.vertices))]
         self.vertex_lineage_versions = [0 for _ in self.vertices]
+        self._topology_version = 0
         self.triangles: dict[int, Triangle] = {}
         for index, triangle in enumerate(mesh.triangles):
             valid = _valid_triangle(triangle, len(self.vertices))
@@ -460,6 +653,35 @@ class _CollapseState:
         result = (placement, cost)
         self.qem_edge_cache[key] = result
         return result
+
+    def topology_version(self) -> int:
+        return self._topology_version
+
+    def vertex_neighbors(self, vertex: int, ring_depth: int = 1) -> set[int]:
+        if vertex not in self.alive_vertices:
+            return set()
+        neighbors: set[int] = set()
+        frontier = {vertex}
+        visited = {vertex}
+        for _ in range(max(0, ring_depth)):
+            next_frontier: set[int] = set()
+            for item in frontier:
+                for edge in self.vertex_edges.get(item, set()):
+                    next_frontier.update(edge)
+            next_frontier.difference_update(visited)
+            neighbors.update(next_frontier)
+            visited.update(next_frontier)
+            frontier = next_frontier
+            if not frontier:
+                break
+        return neighbors
+
+    def incident_faces(self, vertex: int) -> Sequence[Triangle]:
+        return [
+            triangle
+            for face_id in self.vertex_faces.get(vertex, set())
+            if (triangle := self.triangles.get(face_id)) is not None
+        ]
 
     def bump_edge_version(self, edge: Edge) -> int:
         self.edge_versions[edge] += 1
@@ -551,6 +773,7 @@ class _CollapseState:
 
         self.vertices[kept] = tuple(map(float, placement))
         self.alive_vertices.remove(removed)
+        self._topology_version += 1
 
         affected_faces = set(self.vertex_faces.get(kept, set()))
         affected_faces.update(self.vertex_faces.get(removed, set()))
@@ -694,6 +917,89 @@ def _valid_triangle(triangle: Sequence[int], vertex_count: int) -> Triangle | No
 def _triangle_edges(triangle: Triangle) -> tuple[Edge, Edge, Edge]:
     a, b, c = triangle
     return _edge(a, b), _edge(b, c), _edge(c, a)
+
+
+def _edge_afcost_signals(
+    edge: Edge,
+    mesh_state: MeshState,
+    eps: float,
+    vertex_signal_cache: dict[tuple[int, int, int], tuple[float, float]],
+) -> _AFCostSignals:
+    _, qem_cost = mesh_state.qem_edge_evaluation(edge)
+    qem_log = -math.log(max(float(eps) + max(0.0, qem_cost), float(eps)))
+    vertex_signals = [
+        _vertex_local_pd_signal(vertex, mesh_state, vertex_signal_cache)
+        for vertex in edge
+    ]
+    persistence = max(signal[0] for signal in vertex_signals) if vertex_signals else 0.0
+    tiny_detail = max(signal[1] for signal in vertex_signals) if vertex_signals else 0.0
+    return _AFCostSignals(
+        qem_log=qem_log,
+        persistence=persistence,
+        tiny_detail=tiny_detail,
+        qem_cost=qem_cost,
+    )
+
+
+def _vertex_local_pd_signal(
+    vertex: int,
+    mesh_state: MeshState,
+    cache: dict[tuple[int, int, int], tuple[float, float]],
+) -> tuple[float, float]:
+    key = (id(mesh_state), mesh_state.topology_version(), vertex)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    ring1 = mesh_state.vertex_neighbors(vertex, 1)
+    ring2 = mesh_state.vertex_neighbors(vertex, 2)
+    scoped_vertices = {vertex}
+    scoped_vertices.update(ring2)
+    normal_variation = {
+        item: _vertex_normal_variation(item, mesh_state)
+        for item in scoped_vertices
+    }
+    h0 = normal_variation.get(vertex, 0.0)
+    h1 = _average_values(normal_variation, ring1)
+    h2 = _average_values(normal_variation, ring2 - ring1)
+    small_response = abs(h0 - h1)
+    larger_response = abs(h1 - h2)
+    persistence = min(small_response, larger_response) + 0.5 * larger_response
+    tiny_detail = max(0.0, small_response - larger_response)
+    result = (persistence, tiny_detail)
+    cache[key] = result
+    return result
+
+
+def _vertex_normal_variation(vertex: int, mesh_state: MeshState) -> float:
+    normals = []
+    for triangle in mesh_state.incident_faces(vertex):
+        normal = _triangle_normal(
+            mesh_state.vertices[triangle[0]],
+            mesh_state.vertices[triangle[1]],
+            mesh_state.vertices[triangle[2]],
+        )
+        if normal is not None:
+            normals.append(normal)
+    if len(normals) < 2:
+        return 0.0
+    average = _normalize_vector(
+        (
+            sum(normal[0] for normal in normals),
+            sum(normal[1] for normal in normals),
+            sum(normal[2] for normal in normals),
+        )
+    )
+    if average is None:
+        return 0.0
+    return sum(_angle_between(average, normal) for normal in normals) / len(normals) / math.pi
+
+
+def _average_values(values: dict[int, float], keys: set[int]) -> float:
+    if not keys:
+        return 0.0
+    collected = [values.get(key, 0.0) for key in keys]
+    return sum(collected) / len(collected) if collected else 0.0
 
 
 def _edge(a: int, b: int) -> Edge:
@@ -866,6 +1172,17 @@ def _dot(a: Vector3, b: Vector3) -> float:
 
 def _length(vector: Vector3) -> float:
     return math.sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2])
+
+
+def _normalize_vector(vector: Vector3) -> Vector3 | None:
+    length = _length(vector)
+    if length <= 1e-12:
+        return None
+    return vector[0] / length, vector[1] / length, vector[2] / length
+
+
+def _angle_between(a: Vector3, b: Vector3) -> float:
+    return math.acos(max(-1.0, min(1.0, _dot(a, b))))
 
 
 def _distance(a: Vector3, b: Vector3) -> float:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Callable
 
 from assetforge.blender.commands import BlenderVehicleOperations
 from assetforge.blender.executor import BlenderBackgroundExecutor
@@ -332,6 +333,7 @@ class BlenderVehicleService(
         self,
         source_file: Path,
         output_directory: Path,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, object]:
         script_path = Path(__file__).parent / "scripts" / "generate_qem_heatmap.py"
         return self._executor.run_script(
@@ -342,12 +344,14 @@ class BlenderVehicleService(
                 "--output-directory",
                 str(output_directory),
             ],
+            progress_callback=progress_callback,
         )
 
     def generate_scale_analysis(
         self,
         source_file: Path,
         output_directory: Path,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, object]:
         script_path = Path(__file__).parent / "scripts" / "generate_scale_analysis.py"
         return self._executor.run_script(
@@ -358,12 +362,14 @@ class BlenderVehicleService(
                 "--output-directory",
                 str(output_directory),
             ],
+            progress_callback=progress_callback,
         )
 
     def generate_afcost_candidates(
         self,
         source_file: Path,
         output_directory: Path,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, object]:
         script_path = Path(__file__).parent / "scripts" / "generate_afcost_candidates.py"
         return self._executor.run_script(
@@ -374,6 +380,7 @@ class BlenderVehicleService(
                 "--output-directory",
                 str(output_directory),
             ],
+            progress_callback=progress_callback,
         )
 
     def generate_local_simplification_preview(
@@ -383,6 +390,7 @@ class BlenderVehicleService(
         target_triangle_count: int,
         output_directory: Path,
         combo_candidate: str = "auto",
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> RealOptimizationPreviewReport:
         script_path = Path(__file__).parent / "scripts" / "generate_local_simplification_preview.py"
         payload = self._executor.run_script(
@@ -403,5 +411,6 @@ class BlenderVehicleService(
                 "--combo-candidate",
                 combo_candidate,
             ],
+            progress_callback=progress_callback,
         )
         return real_preview_report_from_dict(payload)

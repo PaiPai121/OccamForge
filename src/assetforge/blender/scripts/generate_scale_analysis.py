@@ -33,6 +33,21 @@ BLUE_RED_COLORS: tuple[tuple[float, tuple[float, float, float, float]], ...] = (
 )
 
 
+def _emit_progress(percent: int, stage: str) -> None:
+    print(
+        "ASSETFORGE_PROGRESS "
+        + json.dumps(
+            {
+                "kind": "scale_analysis",
+                "percent": max(0, min(100, int(percent))),
+                "stage": stage,
+            },
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
+
+
 def _clear_scene() -> None:
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
@@ -313,35 +328,47 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
     if source.suffix.lower() not in SUPPORTED_EXTENSIONS:
         return {"input": str(source), "errors": [f"Unsupported source type: {source.suffix}"]}
 
+    _emit_progress(5, "Importing source model")
     _import_source(source)
     target = _select_object(args.object_name)
     if target is None:
         return {"input": str(source), "errors": ["No mesh object was found."]}
 
+    _emit_progress(20, "Preparing mesh for scale analysis")
     mesh = _to_scale_mesh(target)
     scales = _parse_scales(args.scales, _bbox_diagonal(target))
+    _emit_progress(35, "Computing multi-scale responses")
     result = analyze_scale_persistence(mesh, scales=scales)
 
     if args.generate_heatmap:
         _isolate_target_for_render(target)
         _setup_camera_and_light([target])
+        _emit_progress(45, "Rendering normal variation")
         _render_edge_heatmap(target, mesh, result.mean_curvature, "NormalVariation")
         _render(mean_curvature_path)
+        _emit_progress(51, "Rendering inverted normal variation")
         _render_edge_heatmap(target, mesh, result.mean_curvature, "NormalVariationInverse", invert=True)
         _render(mean_curvature_inverse_path)
+        _emit_progress(57, "Rendering center-surround")
         _render_edge_heatmap(target, mesh, result.center_surround_response, "CenterSurround")
         _render(center_surround_path)
+        _emit_progress(63, "Rendering inverted center-surround")
         _render_edge_heatmap(target, mesh, result.center_surround_response, "CenterSurroundInverse", invert=True)
         _render(center_surround_inverse_path)
+        _emit_progress(70, "Rendering scale persistence")
         _render_edge_heatmap(target, mesh, result.scale_persistence, "ScalePersistence")
         _render(persistence_path)
+        _emit_progress(77, "Rendering inverted scale persistence")
         _render_edge_heatmap(target, mesh, result.scale_persistence, "ScalePersistenceInverse", invert=True)
         _render(persistence_inverse_path)
+        _emit_progress(84, "Rendering tiny detail")
         _render_edge_heatmap(target, mesh, result.tiny_detail_score, "TinyDetail")
         _render(tiny_path)
+        _emit_progress(91, "Rendering inverted tiny detail")
         _render_edge_heatmap(target, mesh, result.tiny_detail_score, "TinyDetailInverse", invert=True)
         _render(tiny_inverse_path)
 
+    _emit_progress(96, "Writing scale analysis report")
     report = scale_analysis_report_dict(
         result,
         input_path=str(source),
@@ -357,6 +384,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
     report["tiny_detail_heatmap_inverse"] = str(tiny_inverse_path)
     report["generate_heatmap"] = bool(args.generate_heatmap)
     report["heatmap_rendering"] = "edge_overlay_from_vertex_scores"
+    _emit_progress(100, "Scale analysis complete")
     return report
 
 
