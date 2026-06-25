@@ -363,6 +363,17 @@ def test_result_writes_required_report_json_fields(tmp_path: Path) -> None:
     }
 
 
+def test_result_preserves_compacted_vertex_lineage() -> None:
+    result = CollapseExecutor(StaticEdgeScoreProvider({(1, 2): 10.0}), MidpointPlacement()).simplify(
+        _strip_mesh(),
+        target_triangle_count=3,
+    )
+
+    assert len(result.vertex_sources) == len(result.vertices)
+    assert any(len(sources) > 1 for sources in result.vertex_sources)
+    assert all(sources for sources in result.vertex_sources)
+
+
 class FarPlacement:
     name = "FarPlacement"
 

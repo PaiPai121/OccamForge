@@ -444,7 +444,10 @@ def _ensure_bake_uvs(objects: list[bpy.types.Object]) -> None:
         bake_uv = mesh.uv_layers.new(name=_unique_uv_name(mesh, "AssetForge_BakeUV"))
         bake_index = _uv_layer_index(mesh, bake_uv.name)
         mesh.uv_layers.active_index = bake_index
-        mesh.uv_layers.render_index = bake_index
+        if hasattr(mesh.uv_layers, "render_index"):
+            mesh.uv_layers.render_index = bake_index
+        elif hasattr(mesh.uv_layers, "active_render"):
+            mesh.uv_layers.active_render = bake_uv
 
 
 def _smart_uv_project(objects: list[bpy.types.Object]) -> None:

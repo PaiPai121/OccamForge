@@ -13,6 +13,7 @@ class RealOptimizationPreviewItem:
     rating: str
     preview_blend_path: Path
     preview_image_path: Path
+    preview_mesh_path: Path | None = None
     warnings: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
 

@@ -25,6 +25,7 @@ def test_real_preview_report_round_trip() -> None:
                 rating="Good",
                 preview_blend_path=Path("previews/preview_5000.blend"),
                 preview_image_path=Path("previews/preview_5000.png"),
+                preview_mesh_path=Path("previews/preview_5000.obj"),
                 warnings=("body inferred",),
                 errors=(),
             ),

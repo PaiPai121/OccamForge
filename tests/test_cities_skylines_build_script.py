@@ -3,7 +3,11 @@ import sys
 import types
 
 sys.modules.setdefault("bpy", types.SimpleNamespace())
-from assetforge.blender.scripts.build_cities_skylines_asset import _asset_stem, _copy_deploy_pair
+from assetforge.blender.scripts.build_cities_skylines_asset import (
+    _asset_stem,
+    _copy_deploy_pair,
+    _ensure_bake_uvs,
+)
 
 
 def test_copy_deploy_pair_uses_matching_asset_base(tmp_path: Path) -> None:
@@ -34,3 +38,32 @@ def test_asset_stem_strips_pipeline_suffixes() -> None:
     assert _asset_stem(Path("rhino_tank_preprocessed.blend")) == "rhino_tank"
     assert _asset_stem(Path("rhino_tank_optimized.blend")) == "rhino_tank"
     assert _asset_stem(Path("rhino_tank.blend")) == "rhino_tank"
+
+
+class FakeUVLayers:
+    def __init__(self) -> None:
+        self.layers = []
+        self.active_index = -1
+        self.active_render = None
+
+    def __iter__(self):
+        return iter(self.layers)
+
+    def __len__(self) -> int:
+        return len(self.layers)
+
+    def new(self, name: str):
+        layer = types.SimpleNamespace(name=name)
+        self.layers.append(layer)
+        return layer
+
+
+def test_ensure_bake_uvs_supports_active_render_without_render_index() -> None:
+    uv_layers = FakeUVLayers()
+    mesh = types.SimpleNamespace(uv_layers=uv_layers)
+    obj = types.SimpleNamespace(data=mesh)
+
+    _ensure_bake_uvs([obj])
+
+    assert uv_layers.active_index == 0
+    assert uv_layers.active_render is uv_layers.layers[0]

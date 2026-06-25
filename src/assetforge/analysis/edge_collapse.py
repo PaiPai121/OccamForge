@@ -102,6 +102,7 @@ class EdgeCollapseStep:
 class EdgeCollapseResult:
     vertices: list[Vector3]
     triangles: list[Triangle]
+    vertex_sources: list[frozenset[int]]
     steps: list[EdgeCollapseStep]
     original_vertex_count: int
     original_triangle_count: int
@@ -572,6 +573,7 @@ class CollapseExecutor:
         return EdgeCollapseResult(
             vertices=state.compact_vertices(),
             triangles=state.compact_triangles(),
+            vertex_sources=state.compact_vertex_sources(),
             steps=steps,
             original_vertex_count=len(mesh.vertices),
             original_triangle_count=len(mesh.triangles),
@@ -808,6 +810,17 @@ class _CollapseState:
         remap = {old: new for new, old in enumerate(used)}
         self._compact_remap = remap
         return [self.vertices[old] for old in used]
+
+    def compact_vertex_sources(self) -> list[frozenset[int]]:
+        remap = getattr(self, "_compact_remap", None)
+        if remap is None:
+            used = sorted({vertex for triangle in self.triangles.values() for vertex in triangle})
+        else:
+            used = [old for old, _new in sorted(remap.items(), key=lambda item: item[1])]
+        return [
+            frozenset(self.vertex_lineage[old] if 0 <= old < len(self.vertex_lineage) else {old})
+            for old in used
+        ]
 
     def compact_triangles(self) -> list[Triangle]:
         remap = getattr(self, "_compact_remap", None)

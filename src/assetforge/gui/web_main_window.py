@@ -994,6 +994,12 @@ class AssetForgeBridge(QObject):
         for item in payload["items"]:
             image_path = Path(item["preview_image_path"])
             item["preview_image_url"] = _file_url(image_path)
+            mesh_path = (
+                Path(item["preview_mesh_path"])
+                if item.get("preview_mesh_path")
+                else None
+            )
+            item["preview_mesh_url"] = _file_url(mesh_path) if mesh_path else None
             advanced_ran = any(
                 str(line).startswith("Stage 2 ") or str(line).startswith("Stage 3 ")
                 for line in item.get("warnings", [])

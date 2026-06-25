@@ -541,9 +541,7 @@ function renderViewportPreviewFromText(cacheKey, text) {
   }
 }
 
-function requestViewportMesh(analysis) {
-  const meshPath = analysis.preview_mesh_path;
-  const cacheKey = `${meshPath}:${analysis.triangle_count}`;
+function requestViewportMeshPath(meshPath, cacheKey, fallbackMarkup) {
   if (!meshPath || lastViewportDebugKey === cacheKey) return;
   lastViewportDebugKey = cacheKey;
   $("previewStage").innerHTML = '<div class="empty-preview">Loading viewport mesh...</div>';
@@ -551,11 +549,21 @@ function requestViewportMesh(analysis) {
   bridge.loadPreviewMesh(meshPath, (text) => {
     debugLog(`preview mesh received, mesh_chars=${formatNumber(text ? text.length : 0)}`);
     if (!text) {
-      $("previewStage").innerHTML = '<div class="empty-preview">Viewport preview data is unavailable</div>';
+      $("previewStage").innerHTML = fallbackMarkup || '<div class="empty-preview">Viewport preview data is unavailable</div>';
       return;
     }
     renderViewportPreviewFromText(cacheKey, text);
   });
+}
+
+function requestViewportMesh(analysis) {
+  const meshPath = analysis.preview_mesh_path;
+  const cacheKey = `${meshPath}:${analysis.triangle_count}`;
+  requestViewportMeshPath(
+    meshPath,
+    cacheKey,
+    '<div class="empty-preview">Viewport preview data is unavailable</div>',
+  );
 }
 
 function updateBusy() {
@@ -648,11 +656,19 @@ function renderState(nextState) {
       actual: "Running",
     });
   } else if (item && hasPreviewForTarget()) {
-    viewportUrl = null;
-    cancelAnimationFrame(viewportFrame);
     setText("previewEyebrow", "Real Preview");
     setText("previewTitle", "Optimization result");
-    $("previewStage").innerHTML = previewImageMarkup(item.preview_image_url, "Optimization preview");
+    if (item.preview_mesh_path) {
+      requestViewportMeshPath(
+        item.preview_mesh_path,
+        `${item.preview_mesh_path}:${item.actual_triangles}:${item.preview_blend_path}`,
+        previewImageMarkup(item.preview_image_url, "Optimization preview"),
+      );
+    } else {
+      viewportUrl = null;
+      cancelAnimationFrame(viewportFrame);
+      $("previewStage").innerHTML = previewImageMarkup(item.preview_image_url, "Optimization preview");
+    }
     setText("metricOriginal", `${formatNumber(preview.original_triangle_count)} tris`);
     setText("metricTarget", `${formatNumber(item.target_triangles)} tris`);
     setText("metricActual", `${formatNumber(item.actual_triangles)} tris`);

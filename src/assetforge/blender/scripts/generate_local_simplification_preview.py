@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import bpy
+from mathutils import Vector
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -36,6 +37,7 @@ from generate_afcost_candidates import (  # noqa: E402
     _stats,
 )
 from generate_model_preview import generate as generate_model_preview  # noqa: E402
+from analyze_vehicle import _write_preview_obj  # noqa: E402
 from optimize_vehicle import _count_scene_triangles, _mesh_objects  # noqa: E402
 
 
@@ -148,6 +150,7 @@ def _apply_result_to_object(
     obj: bpy.types.Object,
     vertices: list[tuple[float, float, float]],
     triangles: list[tuple[int, int, int]],
+    vertex_sources: list[frozenset[int]],
 ) -> None:
     old_mesh = obj.data
     old_mesh.calc_loop_triangles()
@@ -176,6 +179,7 @@ def _apply_result_to_object(
         source_polygon_indices,
         exact_source_triangles,
         vertex_to_source_triangles,
+        vertex_sources,
     )
     obj.data = new_mesh
     if old_mesh.users == 0:
@@ -190,11 +194,13 @@ def _copy_face_materials_and_uvs(
     source_polygon_indices: list[int],
     exact_source_triangles: dict[tuple[int, int, int], int],
     vertex_to_source_triangles: dict[int, list[int]],
+    vertex_sources: list[frozenset[int]],
 ) -> None:
     source_triangle_for_polygon: list[int | None] = []
     for polygon_index, triangle in enumerate(triangles):
         source_index = _best_source_triangle(
             triangle,
+            vertex_sources,
             polygon_index,
             source_triangles,
             exact_source_triangles,
@@ -224,27 +230,39 @@ def _copy_face_materials_and_uvs(
             }
             fallback_uv = _average_uv(old_uv_layer, old_polygon.loop_indices)
             for vertex, loop_index in zip(polygon.vertices, polygon.loop_indices, strict=False):
-                source_loop_index = source_loop_by_vertex.get(int(vertex))
+                source_loop_index = _direct_source_loop(
+                    int(vertex),
+                    vertex_sources,
+                    source_loop_by_vertex,
+                )
                 if source_loop_index is None:
-                    new_uv_layer.data[loop_index].uv = fallback_uv
+                    new_uv_layer.data[loop_index].uv = _interpolated_uv(
+                        old_mesh,
+                        old_uv_layer,
+                        old_polygon,
+                        source_vertices,
+                        new_mesh.vertices[int(vertex)].co,
+                        fallback_uv,
+                    )
                 else:
                     new_uv_layer.data[loop_index].uv = old_uv_layer.data[source_loop_index].uv
 
 
 def _best_source_triangle(
     triangle: tuple[int, int, int],
+    vertex_sources: list[frozenset[int]],
     polygon_index: int,
     source_triangles: list[tuple[int, int, int]],
     exact_source_triangles: dict[tuple[int, int, int], int],
     vertex_to_source_triangles: dict[int, list[int]],
 ) -> int | None:
-    exact = exact_source_triangles.get(tuple(sorted(triangle)))
+    exact = exact_source_triangles.get(tuple(sorted(_representative_sources(triangle, vertex_sources))))
     if exact is not None:
         return exact
 
     candidate_indices: set[int] = set()
-    triangle_vertices = set(triangle)
-    for vertex in triangle_vertices:
+    source_vertices = set().union(*(_safe_vertex_sources(vertex_sources, vertex) for vertex in triangle))
+    for vertex in source_vertices:
         candidate_indices.update(vertex_to_source_triangles.get(vertex, []))
     if not candidate_indices:
         return polygon_index if polygon_index < len(source_triangles) else None
@@ -252,10 +270,39 @@ def _best_source_triangle(
     return max(
         candidate_indices,
         key=lambda index: (
-            len(triangle_vertices & set(source_triangles[index])),
+            len(source_vertices & set(source_triangles[index])),
             -abs(index - polygon_index),
         ),
     )
+
+
+def _safe_vertex_sources(vertex_sources: list[frozenset[int]], vertex: int) -> frozenset[int]:
+    if 0 <= vertex < len(vertex_sources) and vertex_sources[vertex]:
+        return vertex_sources[vertex]
+    return frozenset({vertex})
+
+
+def _representative_sources(
+    triangle: tuple[int, int, int],
+    vertex_sources: list[frozenset[int]],
+) -> tuple[int, int, int]:
+    representatives = []
+    for vertex in triangle:
+        sources = _safe_vertex_sources(vertex_sources, vertex)
+        representatives.append(min(sources, key=lambda source: abs(source - vertex)))
+    return representatives[0], representatives[1], representatives[2]
+
+
+def _direct_source_loop(
+    vertex: int,
+    vertex_sources: list[frozenset[int]],
+    source_loop_by_vertex: dict[int, int],
+) -> int | None:
+    for source_vertex in _safe_vertex_sources(vertex_sources, vertex):
+        loop_index = source_loop_by_vertex.get(int(source_vertex))
+        if loop_index is not None:
+            return loop_index
+    return None
 
 
 def _average_uv(old_uv_layer: bpy.types.MeshUVLoopLayer, loop_indices: list[int]) -> Any:
@@ -269,6 +316,60 @@ def _average_uv(old_uv_layer: bpy.types.MeshUVLoopLayer, loop_indices: list[int]
         total_v += float(uv.y)
     count = float(len(loop_indices))
     return (total_u / count, total_v / count)
+
+
+def _interpolated_uv(
+    old_mesh: bpy.types.Mesh,
+    old_uv_layer: bpy.types.MeshUVLoopLayer,
+    old_polygon: bpy.types.MeshPolygon,
+    source_vertices: tuple[int, int, int],
+    position: Vector,
+    fallback_uv: Any,
+) -> Any:
+    if len(source_vertices) != 3 or len(old_polygon.loop_indices) != 3:
+        return fallback_uv
+    a = old_mesh.vertices[int(source_vertices[0])].co
+    b = old_mesh.vertices[int(source_vertices[1])].co
+    c = old_mesh.vertices[int(source_vertices[2])].co
+    barycentric = _barycentric_coordinates(position, a, b, c)
+    if barycentric is None:
+        return fallback_uv
+    uvs = [old_uv_layer.data[int(loop_index)].uv for loop_index in old_polygon.loop_indices]
+    return (
+        float(uvs[0].x) * barycentric[0]
+        + float(uvs[1].x) * barycentric[1]
+        + float(uvs[2].x) * barycentric[2],
+        float(uvs[0].y) * barycentric[0]
+        + float(uvs[1].y) * barycentric[1]
+        + float(uvs[2].y) * barycentric[2],
+    )
+
+
+def _barycentric_coordinates(
+    point: Vector,
+    a: Vector,
+    b: Vector,
+    c: Vector,
+) -> tuple[float, float, float] | None:
+    v0 = b - a
+    v1 = c - a
+    v2 = point - a
+    d00 = v0.dot(v0)
+    d01 = v0.dot(v1)
+    d11 = v1.dot(v1)
+    d20 = v2.dot(v0)
+    d21 = v2.dot(v1)
+    denominator = d00 * d11 - d01 * d01
+    if abs(denominator) <= 1e-12:
+        return None
+    v = (d11 * d20 - d01 * d21) / denominator
+    w = (d00 * d21 - d01 * d20) / denominator
+    u = 1.0 - v - w
+    return (
+        max(-0.25, min(1.25, float(u))),
+        max(-0.25, min(1.25, float(v))),
+        max(-0.25, min(1.25, float(w))),
+    )
 
 
 def _score(target_triangles: int, warning_triangles: int, critical_triangles: int) -> int:
@@ -364,7 +465,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
                     }
                 ),
             )
-            _apply_result_to_object(obj, result.vertices, result.triangles)
+            _apply_result_to_object(obj, result.vertices, result.triangles, result.vertex_sources)
             object_reports.append(
                 {
                     "object_name": obj.name,
@@ -384,6 +485,9 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
     bpy.ops.wm.save_as_mainfile(filepath=str(output_blend))
     mesh_objects = _mesh_objects()
     actual_triangles = _count_scene_triangles(mesh_objects)
+    preview_mesh = output_directory / f"{source.stem}_local_simplified_viewport.obj"
+    if mesh_objects:
+        _write_preview_obj(mesh_objects, preview_mesh)
 
     preview_report = generate_model_preview(
         argparse.Namespace(
@@ -426,6 +530,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
                 "rating": _rating(score),
                 "preview_blend_path": str(output_blend),
                 "preview_image_path": str(preview_image),
+                "preview_mesh_path": str(preview_mesh) if preview_mesh.exists() else None,
                 "warnings": warnings + [f"Local edge-collapse used combo candidate: {local_report['combo_candidate']}"],
                 "errors": errors,
             }

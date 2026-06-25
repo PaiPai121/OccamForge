@@ -18,6 +18,11 @@ def real_preview_item_from_dict(payload: dict[str, Any]) -> RealOptimizationPrev
         rating=str(payload["rating"]),
         preview_blend_path=Path(payload["preview_blend_path"]),
         preview_image_path=Path(payload["preview_image_path"]),
+        preview_mesh_path=(
+            Path(str(payload["preview_mesh_path"]))
+            if payload.get("preview_mesh_path")
+            else None
+        ),
         warnings=tuple(str(item) for item in payload.get("warnings", [])),
         errors=tuple(str(item) for item in payload.get("errors", [])),
     )
@@ -32,6 +37,7 @@ def real_preview_item_to_dict(item: RealOptimizationPreviewItem) -> dict[str, An
         "rating": item.rating,
         "preview_blend_path": str(item.preview_blend_path),
         "preview_image_path": str(item.preview_image_path),
+        "preview_mesh_path": str(item.preview_mesh_path) if item.preview_mesh_path else None,
         "warnings": list(item.warnings),
         "errors": list(item.errors),
     }
