@@ -226,6 +226,11 @@ dist\AssetForge\AssetForge.exe
 
 The executable name will be renamed in a future packaging cleanup.
 
+## Friendship Link
+俺也在这里发了帖
+https://linux.do/
+
+
 ## License
 
 MIT License. See [LICENSE](LICENSE).
