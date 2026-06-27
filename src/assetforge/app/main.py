@@ -31,6 +31,7 @@ def main() -> int:
         services.qem_heatmap,
         services.scale_analysis,
         services.afcost_candidates,
+        services.collapse_impact,
         services.blender_configuration,
     )
     window.resize(1280, 860)

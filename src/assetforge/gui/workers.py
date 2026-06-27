@@ -18,6 +18,7 @@ from assetforge.domain.simplification_report import SimplificationReport
 from assetforge.domain.validation import ValidationReport
 from assetforge.services.afcost_candidates import AFCostCandidateService
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
+from assetforge.services.collapse_impact import CollapseImpactService
 from assetforge.services.geometry_report import GeometryReportService
 from assetforge.services.local_simplification import LocalSimplificationService
 from assetforge.services.model_preview import ModelPreviewService
@@ -472,6 +473,48 @@ class ScaleAnalysisWorker(QRunnable):
                 self.signals.progress.emit(f"Scale analysis {percent}%: {stage}")
 
             report = self._scale_analysis_service.generate(
+                self._source_file,
+                self._output_directory,
+                progress_callback,
+            )
+        except Exception as exc:  # noqa: BLE001 - show infrastructure failures in GUI.
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(report)
+
+
+class CollapseImpactWorkerSignals(QObject):
+    started = Signal()
+    progress = Signal(str)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class CollapseImpactWorker(QRunnable):
+    def __init__(
+        self,
+        collapse_impact_service: CollapseImpactService,
+        source_file: Path,
+        output_directory: Path,
+    ) -> None:
+        super().__init__()
+        self._collapse_impact_service = collapse_impact_service
+        self._source_file = source_file
+        self._output_directory = output_directory
+        self.signals = CollapseImpactWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        self.signals.started.emit()
+        try:
+            self.signals.progress.emit("Computing collapse impact diagnostics...")
+
+            def progress_callback(payload: dict[str, Any]) -> None:
+                percent = max(0, min(100, int(payload.get("percent", 0))))
+                stage = str(payload.get("stage", "Computing collapse impact diagnostics"))
+                self.signals.progress.emit(f"Collapse impact {percent}%: {stage}")
+
+            report = self._collapse_impact_service.generate(
                 self._source_file,
                 self._output_directory,
                 progress_callback,

@@ -28,6 +28,7 @@ from assetforge.gui.workers import (
     AFCostCandidateWorker,
     AnalysisWorker,
     CitiesSkylinesBuildWorker,
+    CollapseImpactWorker,
     GeometryReportWorker,
     LocalSimplificationWorker,
     ModelPreviewWorker,
@@ -41,6 +42,7 @@ from assetforge.gui.workers import (
 from assetforge.services.afcost_candidates import AFCostCandidateService
 from assetforge.services.blender_configuration import BlenderConfigurationService
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuildService
+from assetforge.services.collapse_impact import CollapseImpactService
 from assetforge.services.geometry_report import GeometryReportService
 from assetforge.services.local_simplification import LocalSimplificationService
 from assetforge.services.model_preview import ModelPreviewService
@@ -98,6 +100,7 @@ class AssetForgeBridge(QObject):
         qem_heatmap_service: QemHeatmapService,
         scale_analysis_service: ScaleAnalysisService,
         afcost_candidate_service: AFCostCandidateService,
+        collapse_impact_service: CollapseImpactService,
         blender_configuration: BlenderConfigurationService,
     ) -> None:
         super().__init__()
@@ -113,6 +116,7 @@ class AssetForgeBridge(QObject):
         self._qem_heatmap_service = qem_heatmap_service
         self._scale_analysis_service = scale_analysis_service
         self._afcost_candidate_service = afcost_candidate_service
+        self._collapse_impact_service = collapse_impact_service
         self._blender_configuration = blender_configuration
         self._thread_pool = QThreadPool.globalInstance()
         self._active_workers: list[object] = []
@@ -151,6 +155,7 @@ class AssetForgeBridge(QObject):
             "qemHeatmap": None,
             "scaleAnalysis": None,
             "afcostCandidates": None,
+            "collapseImpact": None,
             "build": None,
             "currentPreviewTarget": None,
             "outputFolder": str(output_folder) if output_folder else None,
@@ -435,6 +440,7 @@ class AssetForgeBridge(QObject):
                 "qemHeatmap": None,
                 "scaleAnalysis": None,
                 "afcostCandidates": None,
+                "collapseImpact": None,
                 "build": None,
                 "currentPreviewTarget": None,
                 "status": "Loading original model preview..."
@@ -855,6 +861,31 @@ class AssetForgeBridge(QObject):
         self._start_worker(worker)
 
     @Slot()
+    def generateCollapseImpact(self) -> None:
+        if not self._selected_file:
+            self.logAdded.emit("Select a model file before running Collapse Impact.")
+            return
+        if self._start_busy("Computing collapse impact heatmaps..."):
+            return
+        source_file = self._pipeline_blend_file()
+        worker = CollapseImpactWorker(
+            self._collapse_impact_service,
+            source_file,
+            self._selected_file.parent / "collapse_impact",
+        )
+        worker.signals.started.connect(
+            lambda: self._run_on_ui(
+                lambda: self.logAdded.emit(f"Collapse Impact started for {source_file.name}.")
+            )
+        )
+        worker.signals.progress.connect(lambda message: self._run_on_ui(lambda: self._progress(message)))
+        worker.signals.finished.connect(
+            lambda report: self._run_on_ui(lambda: self._collapse_impact_finished(report))
+        )
+        worker.signals.failed.connect(lambda message: self._run_on_ui(lambda: self._fail(message)))
+        self._start_worker(worker)
+
+    @Slot()
     def generateAFCostCandidates(self) -> None:
         if not self._selected_file:
             self.logAdded.emit("Select a model file before generating AF cost candidates.")
@@ -1198,6 +1229,37 @@ class AssetForgeBridge(QObject):
             f"tiny detail ratio {tiny_ratio:.1%}"
         )
 
+    def _collapse_impact_finished(self, report: object) -> None:
+        payload = dict(report) if isinstance(report, dict) else {}
+        path_keys = (
+            "heatmap_png",
+            "heatmap_inverse_png",
+            "normal_impact_heatmap_png",
+            "normal_impact_heatmap_inverse_png",
+            "area_impact_debug_heatmap_png",
+            "area_impact_debug_heatmap_inverse_png",
+            "edge_length_impact_debug_heatmap_png",
+            "edge_length_impact_debug_heatmap_inverse_png",
+            "removed_face_ratio_debug_heatmap_png",
+            "removed_face_ratio_debug_heatmap_inverse_png",
+        )
+        for key in path_keys:
+            payload[f"{key}_url"] = _file_url(Path(str(payload.get(key, ""))))
+        self._state["collapseImpact"] = payload
+        status = (
+            "Collapse Impact complete"
+            if not payload.get("errors")
+            else "Collapse Impact found issues"
+        )
+        self._finish_busy(status)
+        metrics = payload.get("metrics", {})
+        normal_stats = (metrics.get("normal_impact", {}) or {}).get("statistics", {})
+        self.logAdded.emit(
+            "Collapse Impact: "
+            f"{int(payload.get('edge_count', 0)):,} edges, "
+            f"median normal impact {float(normal_stats.get('median', 0.0)):.6g}"
+        )
+
     def _afcost_candidates_finished(self, report: object) -> None:
         payload = dict(report) if isinstance(report, dict) else {}
         for candidate in payload.get("candidates", []) or []:
@@ -1405,6 +1467,7 @@ class WebMainWindow(QMainWindow):
         qem_heatmap_service: QemHeatmapService,
         scale_analysis_service: ScaleAnalysisService,
         afcost_candidate_service: AFCostCandidateService,
+        collapse_impact_service: CollapseImpactService,
         blender_configuration: BlenderConfigurationService,
     ) -> None:
         super().__init__()
@@ -1428,6 +1491,7 @@ class WebMainWindow(QMainWindow):
             qem_heatmap_service,
             scale_analysis_service,
             afcost_candidate_service,
+            collapse_impact_service,
             blender_configuration,
         )
         self._channel.registerObject("assetForge", self._bridge)

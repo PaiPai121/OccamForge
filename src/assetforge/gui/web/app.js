@@ -11,6 +11,7 @@ let lastGeometryReportKey = null;
 let lastSimplificationReportKey = null;
 let lastQemHeatmapKey = null;
 let lastScaleAnalysisKey = null;
+let lastCollapseImpactKey = null;
 let lastAFCostCandidateKey = null;
 let pendingAfterPreprocess = null;
 let lastPreprocessContinuationKey = null;
@@ -197,7 +198,7 @@ function workflowActionLabel() {
 function runWorkflowAction() {
   appendLog("Heatmap diagnostics pipeline clicked.");
   pendingHeatmapDiagnostics = true;
-  if (state.qemHeatmap && state.scaleAnalysis && state.afcostCandidates) {
+  if (state.qemHeatmap && state.scaleAnalysis && state.collapseImpact && state.afcostCandidates) {
     pendingHeatmapDiagnostics = false;
     renderAFCostCandidates(state.afcostCandidates);
     openAFCostModal();
@@ -205,6 +206,8 @@ function runWorkflowAction() {
     runWithOptionalPreprocess("qem");
   } else if (!state.scaleAnalysis) {
     runWithOptionalPreprocess("scale");
+  } else if (!state.collapseImpact) {
+    runWithOptionalPreprocess("collapseImpact");
   } else {
     runWithOptionalPreprocess("afcost");
   }
@@ -240,6 +243,12 @@ function scaleAnalysisPercent() {
   return Math.max(0, Math.min(100, Number(match[1])));
 }
 
+function collapseImpactPercent() {
+  const match = String(state.status || "").match(/Collapse impact\s+(\d+)%/i);
+  if (!match) return 0;
+  return Math.max(0, Math.min(100, Number(match[1])));
+}
+
 function qemHeatmapPercent() {
   const match = String(state.status || "").match(/QEM heatmap\s+(\d+)%/i);
   if (!match) return 0;
@@ -256,6 +265,14 @@ function isScaleAnalysisBusy() {
   return Boolean(
     state.busy
     && (status.includes("scale analysis") || status.includes("multi-scale visual importance"))
+  );
+}
+
+function isCollapseImpactBusy() {
+  const status = String(state.status || "").toLowerCase();
+  return Boolean(
+    state.busy
+    && (status.includes("collapse impact") || status.includes("collapse diagnostics"))
   );
 }
 
@@ -575,6 +592,7 @@ function updateBusy() {
   const hasCurrentOptimizedPreview = hasOptimizedPreviewForTarget();
   $("workflowActionBtn").disabled = state.busy || !hasFile;
   $("workflowActionBtn").textContent = workflowActionLabel();
+  $("collapseImpactBtn").disabled = state.busy || !hasFile;
   $("simplificationReportBtn").disabled = state.busy || !hasBlendFile || !state.currentPreviewTarget;
   $("buildBtn").disabled = state.busy || !hasBlendFile;
   $("applyPreviewBtn").disabled = state.busy || !state.currentPreviewTarget || !optimizeEnabled;
@@ -634,6 +652,16 @@ function renderState(nextState) {
       detail: state.status || "Computing multi-scale visual importance",
       note: "Computing persistence, tiny-detail signals, and diagnostic heatmaps.",
       actual: "Analyzing",
+    });
+  } else if (isCollapseImpactBusy()) {
+    renderProgressPanel({
+      eyebrow: "Collapse Impact",
+      title: "Computing after-collapse change",
+      heading: "Computing collapse normal impact",
+      percent: collapseImpactPercent(),
+      detail: state.status || "Computing collapse impact diagnostics",
+      note: "Simulating per-edge collapse and rendering the default normal-impact heatmap.",
+      actual: "Simulating",
     });
   } else if (isAFCostCandidateBusy()) {
     renderProgressPanel({
@@ -775,6 +803,7 @@ function renderState(nextState) {
   renderSimplificationReport(state.simplificationReport);
   renderQemHeatmap(state.qemHeatmap);
   renderScaleAnalysis(state.scaleAnalysis);
+  renderCollapseImpact(state.collapseImpact);
   continueAfterPreprocessIfNeeded();
   continueHeatmapDiagnosticsIfNeeded();
   refreshCleanedPreviewIfNeeded();
@@ -831,6 +860,8 @@ function runWithOptionalPreprocess(action, pipelineStage = 1) {
     bridge.generateQemHeatmap();
   } else if (action === "scale") {
     bridge.generateScaleAnalysis();
+  } else if (action === "collapseImpact") {
+    bridge.generateCollapseImpact();
   } else if (action === "afcost") {
     bridge.generateAFCostCandidates();
   }
@@ -859,6 +890,9 @@ function continueAfterPreprocessIfNeeded() {
   } else if (pending.action === "scale") {
     appendLog("Auto cleanup complete. Generating scale analysis from the joined model.");
     bridge.generateScaleAnalysis();
+  } else if (pending.action === "collapseImpact") {
+    appendLog("Auto cleanup complete. Generating CollapseImpact from the joined model.");
+    bridge.generateCollapseImpact();
   } else if (pending.action === "afcost") {
     appendLog("Auto cleanup complete. Generating combo scores from the joined model.");
     bridge.generateAFCostCandidates();
@@ -873,6 +907,10 @@ function continueHeatmapDiagnosticsIfNeeded() {
   }
   if (!state.scaleAnalysis) {
     runWithOptionalPreprocess("scale");
+    return;
+  }
+  if (!state.collapseImpact) {
+    runWithOptionalPreprocess("collapseImpact");
     return;
   }
   if (!state.afcostCandidates) {
@@ -894,7 +932,7 @@ function closeQemModal() {
 }
 
 function openScaleModal() {
-  if (!state.scaleAnalysis && !state.qemHeatmap) return;
+  if (!state.scaleAnalysis && !state.qemHeatmap && !state.collapseImpact) return;
   $("scaleModal").hidden = false;
 }
 
@@ -1336,6 +1374,33 @@ function renderScaleAnalysis(report) {
   renderAFCostCandidates(state.afcostCandidates);
 }
 
+function renderCollapseImpact(report) {
+  const image = $("diagCollapseImpactImage");
+  if (!image) return;
+  if (!report) {
+    lastCollapseImpactKey = null;
+    image.innerHTML = emptyPreviewMarkup("CollapseImpact has not been generated yet");
+    return;
+  }
+  const metrics = report.metrics || {};
+  const normalMetric = metrics.normal_impact || {};
+  const stats = normalMetric.statistics || {};
+  const imageUrl = heatmapInverted
+    ? report.normal_impact_heatmap_inverse_png_url || report.heatmap_inverse_png_url
+    : report.normal_impact_heatmap_png_url || report.heatmap_png_url;
+  image.innerHTML = previewImageMarkup(imageUrl, "Collapse normal impact heatmap");
+  const reportKey = `${heatmapInverted}:${imageUrl || ""}:${report.edge_count || ""}:${stats.p99 || ""}`;
+  if (lastCollapseImpactKey !== reportKey) {
+    lastCollapseImpactKey = reportKey;
+    if (!pendingHeatmapDiagnostics) {
+      appendLog(
+        `Collapse Impact ready: ${formatNumber(report.edge_count)} edges, median normal ${formatFloat(stats.median, 4)}.`,
+      );
+      window.requestAnimationFrame(openScaleModal);
+    }
+  }
+}
+
 function renderAFCostCandidates(report) {
   const notice = $("afcostNotice");
   const grid = $("afcostGrid");
@@ -1439,11 +1504,16 @@ function bindUi() {
   $("workflowActionBtn").addEventListener("click", () => {
     runWorkflowAction();
   });
+  $("collapseImpactBtn").addEventListener("click", () => {
+    appendLog("Collapse Impact clicked.");
+    runWithOptionalPreprocess("collapseImpact");
+  });
   $("invertHeatmapsToggle").addEventListener("change", () => {
     heatmapInverted = $("invertHeatmapsToggle").checked;
     appendLog(heatmapInverted ? "Heatmaps inverted." : "Heatmaps restored to normal.");
     renderQemHeatmap(state.qemHeatmap);
     renderScaleAnalysis(state.scaleAnalysis);
+    renderCollapseImpact(state.collapseImpact);
   });
   $("exportHeatmapComparisonBtn").addEventListener("click", () => {
     exportHeatmapComparison();

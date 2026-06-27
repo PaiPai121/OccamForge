@@ -1,6 +1,6 @@
 [project]
 name = "occamforge"
-version = "1.0.0"
+version = "2.0.0"
 description = "Open-source desktop tool for converting Blender models into game-ready assets."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,6 +29,7 @@ occamforge-geometry-report = "assetforge.app.geometry_report_cli:main"
 occamforge-simplification-report = "assetforge.app.simplification_report_cli:main"
 occamforge-qem-heatmap = "assetforge.app.qem_heatmap_cli:main"
 occamforge-scale-analysis = "assetforge.app.scale_analysis_cli:main"
+occamforge-collapse-impact = "assetforge.app.collapse_impact_cli:main"
 assetforge = "assetforge.app.main:main"
 assetforge-analyze = "assetforge.app.cli:main"
 assetforge-optimize = "assetforge.app.optimize_cli:main"
@@ -42,6 +43,7 @@ assetforge-geometry-report = "assetforge.app.geometry_report_cli:main"
 assetforge-simplification-report = "assetforge.app.simplification_report_cli:main"
 assetforge-qem-heatmap = "assetforge.app.qem_heatmap_cli:main"
 assetforge-scale-analysis = "assetforge.app.scale_analysis_cli:main"
+assetforge-collapse-impact = "assetforge.app.collapse_impact_cli:main"
 
 [build-system]
 requires = ["hatchling"]

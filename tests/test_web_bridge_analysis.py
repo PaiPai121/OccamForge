@@ -42,6 +42,7 @@ def _bridge(preview_mesh: Path) -> AssetForgeBridge:
         UnusedService(),
         UnusedService(),
         UnusedService(),
+        UnusedService(),
     )
 
 

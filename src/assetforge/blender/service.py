@@ -27,6 +27,7 @@ from assetforge.models.real_optimization_preview_dto import real_preview_report_
 from assetforge.models.simplification_report_dto import simplification_report_from_dict
 from assetforge.models.validation_dto import validation_report_from_dict
 from assetforge.services.cities_skylines_build import CitiesSkylinesBuilder
+from assetforge.services.collapse_impact import CollapseImpactGenerator
 from assetforge.services.afcost_candidates import AFCostCandidateGenerator
 from assetforge.services.geometry_report import GeometryReporter
 from assetforge.services.local_simplification import LocalSimplifier
@@ -57,6 +58,7 @@ class BlenderVehicleService(
     AFCostCandidateGenerator,
     QemHeatmapGenerator,
     ScaleAnalysisGenerator,
+    CollapseImpactGenerator,
     LocalSimplifier,
 ):
     """Production adapter for vehicle operations implemented in Blender."""
@@ -354,6 +356,24 @@ class BlenderVehicleService(
         progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, object]:
         script_path = Path(__file__).parent / "scripts" / "generate_scale_analysis.py"
+        return self._executor.run_script(
+            script_path,
+            [
+                "--source-file",
+                str(source_file),
+                "--output-directory",
+                str(output_directory),
+            ],
+            progress_callback=progress_callback,
+        )
+
+    def generate_collapse_impact(
+        self,
+        source_file: Path,
+        output_directory: Path,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, object]:
+        script_path = Path(__file__).parent / "scripts" / "generate_collapse_impact.py"
         return self._executor.run_script(
             script_path,
             [

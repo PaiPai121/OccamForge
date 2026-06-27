@@ -75,6 +75,7 @@
           </div>
           <div class="primary-actions">
             <button id="workflowActionBtn">Generate Combo Scores</button>
+            <button class="secondary" id="collapseImpactBtn">Collapse Impact</button>
             <button class="build" id="buildBtn">Build Asset</button>
           </div>
           <div class="build-summary" id="buildSummary" hidden></div>
@@ -198,7 +199,7 @@
           <div class="panel-header">
             <div>
               <p class="eyebrow">Heatmap Diagnostics</p>
-              <h3>QEM cost vs scale-first importance</h3>
+              <h3>QEM, scale, and collapse diagnostics</h3>
             </div>
             <div class="scale-header-actions">
               <label class="heatmap-toggle">
@@ -225,6 +226,13 @@
                 <div class="empty-preview">Heatmap Diagnostics will generate Feature-Aware QEM cost</div>
               </div>
               <div class="scale-colorbar"><span>Low cost</span><i></i><span>High cost</span></div>
+            </div>
+            <div>
+              <h4>Collapse normal impact</h4>
+              <div class="geometry-preview diagnostics-preview" id="diagCollapseImpactImage">
+                <div class="empty-preview">Heatmap Diagnostics will generate CollapseImpact</div>
+              </div>
+              <div class="scale-colorbar"><span>Low impact</span><i></i><span>High impact</span></div>
             </div>
           </div>
           <div class="scale-layout">
