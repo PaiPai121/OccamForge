@@ -450,6 +450,29 @@ def _ensure_bake_uvs(objects: list[bpy.types.Object]) -> None:
             mesh.uv_layers.active_render = bake_uv
 
 
+def _active_uv_name(mesh: bpy.types.Mesh) -> str | None:
+    if mesh.uv_layers.active is None:
+        return None
+    return str(mesh.uv_layers.active.name)
+
+
+def _keep_only_uv_layer(objects: list[bpy.types.Object], uv_names: dict[str, str]) -> None:
+    for obj in objects:
+        mesh = obj.data
+        keep_name = uv_names.get(obj.name)
+        if not keep_name:
+            continue
+        for layer in list(mesh.uv_layers):
+            if layer.name != keep_name:
+                mesh.uv_layers.remove(layer)
+        index = _uv_layer_index(mesh, keep_name)
+        mesh.uv_layers.active_index = index
+        if hasattr(mesh.uv_layers, "render_index"):
+            mesh.uv_layers.render_index = index
+        elif hasattr(mesh.uv_layers, "active_render") and mesh.uv_layers.active is not None:
+            mesh.uv_layers.active_render = mesh.uv_layers.active
+
+
 def _smart_uv_project(objects: list[bpy.types.Object]) -> None:
     _ensure_bake_uvs(objects)
     bpy.ops.object.select_all(action="DESELECT")
@@ -460,6 +483,29 @@ def _smart_uv_project(objects: list[bpy.types.Object]) -> None:
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.uv.smart_project(angle_limit=1.15192, island_margin=0.03, area_weight=0.0)
     bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _assign_baked_texture_material(
+    objects: list[bpy.types.Object],
+    image: bpy.types.Image,
+) -> None:
+    material = bpy.data.materials.new("AssetForge_CitiesSkylines_Diffuse")
+    material.use_nodes = True
+    nodes = material.node_tree.nodes
+    links = material.node_tree.links
+    nodes.clear()
+    output = nodes.new(type="ShaderNodeOutputMaterial")
+    bsdf = nodes.new(type="ShaderNodeBsdfPrincipled")
+    texture = nodes.new(type="ShaderNodeTexImage")
+    texture.image = image
+    links.new(texture.outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+    for obj in objects:
+        mesh = obj.data
+        mesh.materials.clear()
+        mesh.materials.append(material)
+        for polygon in mesh.polygons:
+            polygon.material_index = 0
 
 
 def _bake_diffuse_texture(objects: list[bpy.types.Object], texture_file: Path) -> None:
@@ -476,6 +522,11 @@ def _bake_diffuse_texture(objects: list[bpy.types.Object], texture_file: Path) -
     _preserve_source_texture_uvs(bake_objects)
     _prepare_materials_for_bake(bake_objects, image)
     _smart_uv_project(bake_objects)
+    bake_uv_names = {
+        obj.name: uv_name
+        for obj in bake_objects
+        if (uv_name := _active_uv_name(obj.data)) is not None
+    }
 
     bpy.context.scene.render.engine = "CYCLES"
     bpy.context.scene.cycles.samples = 32
@@ -492,6 +543,8 @@ def _bake_diffuse_texture(objects: list[bpy.types.Object], texture_file: Path) -
     image.filepath_raw = str(texture_file)
     image.file_format = "PNG"
     image.save_render(filepath=str(texture_file))
+    _keep_only_uv_layer(bake_objects, bake_uv_names)
+    _assign_baked_texture_material(bake_objects, image)
 
 
 def _apply_cities_skylines_orientation(joined: bpy.types.Object) -> None:

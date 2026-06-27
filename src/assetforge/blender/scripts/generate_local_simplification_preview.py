@@ -382,6 +382,13 @@ def _score(target_triangles: int, warning_triangles: int, critical_triangles: in
     return max(35, min(95, int(round(95 - (over / span) * 60))))
 
 
+def _filename_slug(value: str) -> str:
+    slug = "".join(char.lower() if char.isalnum() else "_" for char in value)
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug.strip("_") or "auto"
+
+
 def _rating(score: int) -> str:
     if score < 50:
         return "High Risk"
@@ -481,11 +488,13 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
                 }
             )
 
-    output_blend = output_directory / f"{source.stem}_local_simplified.blend"
+    candidate_name = ",".join(sorted(selected_candidates)) if selected_candidates else str(args.combo_candidate)
+    output_stem = f"{source.stem}_local_simplified_{_filename_slug(candidate_name)}"
+    output_blend = output_directory / f"{output_stem}.blend"
     bpy.ops.wm.save_as_mainfile(filepath=str(output_blend))
     mesh_objects = _mesh_objects()
     actual_triangles = _count_scene_triangles(mesh_objects)
-    preview_mesh = output_directory / f"{source.stem}_local_simplified_viewport.obj"
+    preview_mesh = output_directory / f"{output_stem}_viewport.obj"
     if mesh_objects:
         _write_preview_obj(mesh_objects, preview_mesh)
 
@@ -495,7 +504,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
             output_directory=str(output_directory),
         )
     )
-    preview_image = Path(str(preview_report.get("preview_image_path", output_directory / f"{source.stem}_local_simplified_source_preview.png")))
+    preview_image = Path(str(preview_report.get("preview_image_path", output_directory / f"{output_stem}_source_preview.png")))
     reduction = (
         0.0
         if original_triangles <= 0
@@ -510,7 +519,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "runtime": sum(float(item.get("runtime", 0.0)) for item in object_reports),
         "cost_provider_name": "SelectedAFCostProvider",
         "placement_provider_name": "QEMPlacement",
-        "combo_candidate": ",".join(sorted(selected_candidates)) if selected_candidates else str(args.combo_candidate),
+        "combo_candidate": candidate_name,
         "objects": object_reports,
     }
     report_path = output_directory / "local_simplification_report.json"
